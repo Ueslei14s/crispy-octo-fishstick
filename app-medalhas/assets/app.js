@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const st = {
-  img: null, nome: 'peca', produto: 'medalha', formato: 'contorno', cores: 4, tol: 60,
+  img: null, nome: 'peca', produto: 'medalha', formato: 'contorno', cores: 4, tol: 60, pedestal: 'ret2',
   an: null, corUser: {}, peca: null, objetos: null,
 };
 
@@ -90,13 +90,72 @@ segmento('segProd', v => {
   st.produto = v;
   const P = Motor.PRODUTOS[v];
   $('nLarg').value = P.largura; $('nBase').value = P.base; $('nRelevo').value = P.relevo;
+  $('boxPed').hidden = v !== 'trofeu';
+  marcarEsp();
   limpar3D();
 });
-segmento('segForma', v => { st.formato = v; limpar3D(); });
+$('selForma').onchange = () => { st.formato = $('selForma').value; limpar3D(); };
+segmento('segEsp', v => { $('nBase').value = v; limpar3D(); });
+function marcarEsp() { $('segEsp').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === +$('nBase').value)); }
+
+// pedestais: miniatura vista de lado (níveis empilhados)
+(function montarPedestais() {
+  const g = $('gradePed');
+  Object.entries(Motor.Pedestais.lista).forEach(([id, def]) => {
+    const b = document.createElement('button'); b.dataset.v = id; if (id === st.pedestal) b.className = 'on';
+    const cv = document.createElement('canvas'); cv.width = 144; cv.height = 96;
+    const ped = Motor.Pedestais.construir(id, 100, 22, 4);
+    const ctx = cv.getContext('2d');
+    let x0 = Infinity, x1 = -Infinity, zt = 0;
+    ped.niveis.forEach(n => n.paths.forEach(r => r.forEach(q => { x0 = Math.min(x0, q.X / 1000); x1 = Math.max(x1, q.X / 1000); })) || (zt = Math.max(zt, n.z1)));
+    ped.niveis.forEach(n => { zt = Math.max(zt, n.z1); });
+    const k = Math.min(130 / (x1 - x0), 60 / zt), cx = 72, base = 88;
+    ctx.fillStyle = '#ffc531'; ctx.fillRect(cx - 11 * k, base - zt * k - 30, 22 * k, 30);
+    ped.niveis.forEach(n => {
+      let a = Infinity, z = -Infinity; n.paths.forEach(r => r.forEach(q => { a = Math.min(a, q.X / 1000); z = Math.max(z, q.X / 1000); }));
+      const e = n.escala || 1;
+      ctx.fillStyle = '#d9dee6';
+      ctx.beginPath();
+      ctx.moveTo(cx + a * k, base - n.z0 * k); ctx.lineTo(cx + z * k, base - n.z0 * k);
+      ctx.lineTo(cx + z * e * k, base - n.z1 * k); ctx.lineTo(cx + a * e * k, base - n.z1 * k); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#111317'; ctx.lineWidth = 1; ctx.stroke();
+    });
+    const t = document.createElement('span'); t.textContent = def.nome;
+    b.append(cv, t);
+    b.onclick = () => { st.pedestal = id; g.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); limpar3D(); if (st.an) $('bGerar').click(); };
+    g.append(b);
+  });
+})();
+
+// ---------------------------------------------------------------- otimizador
+const TIPOS = Object.keys(PERFIS_U1.filamentos);
+(function montarFilamentos() {
+  for (let i = 0; i < 4; i++) {
+    const l = document.createElement('label'); l.className = 'f'; l.textContent = 'Filamento ' + (i + 1);
+    const sel = document.createElement('select'); sel.id = 'fil' + i;
+    TIPOS.forEach(t => { const o = document.createElement('option'); o.value = o.textContent = t; sel.append(o); });
+    l.append(sel); $('listaFil').append(l);
+  }
+})();
+const RECOMENDADO = { selQual: '0.12', selFerro: 'top', nFerroFluxo: 12, nFerroEsp: 0.12, nFerroVel: 30, nParedes: 3, nTopo: 5, nInfill: 20 };
+function aplicarRecomendado() { for (const [k, v] of Object.entries(RECOMENDADO)) $(k).value = v; $('selFerro').onchange(); }
+$('selFerro').onchange = () => { $('boxFerro').style.opacity = $('selFerro').value === 'no ironing' ? .4 : 1; };
+$('bRecom').onclick = () => { aplicarRecomendado(); msg('Configuração recomendada aplicada: camada 0,12 mm, passar ferro em todas as superfícies de cima, 3 paredes.', 'ok'); };
+aplicarRecomendado();
+function ajustesImpressao() {
+  const a = {
+    wall_loops: +$('nParedes').value, top_shell_layers: +$('nTopo').value,
+    sparse_infill_density: $('nInfill').value + '%', ironing_type: $('selFerro').value,
+  };
+  if ($('selFerro').value !== 'no ironing') {
+    a.ironing_flow = $('nFerroFluxo').value + '%'; a.ironing_spacing = $('nFerroEsp').value; a.ironing_speed = $('nFerroVel').value;
+  }
+  return a;
+}
 segmento('segCores', v => { st.cores = +v; analisar(); });
 $('rTol').oninput = () => { $('tolTxt').textContent = $('rTol').value; };
 $('rTol').onchange = () => { st.tol = +$('rTol').value; analisar(); };
-['nLarg', 'nBase', 'nRelevo'].forEach(id => $(id).onchange = limpar3D);
+['nLarg', 'nBase', 'nRelevo'].forEach(id => $(id).onchange = () => { marcarEsp(); limpar3D(); });
 
 // ---------------------------------------------------------------- 3D
 const R = (() => {
@@ -177,7 +236,7 @@ function recolorir() {
 }
 function limpar3D() {
   st.peca = null; st.objetos = null;
-  $('b3mf').disabled = $('bStl').disabled = true; $('info').textContent = '';
+  $('b3mf').disabled = $('bStl').disabled = $('bOrca').disabled = true; $('info').textContent = '';
   R.limpar();
 }
 
@@ -188,7 +247,7 @@ $('bGerar').onclick = () => {
     try {
       const t0 = performance.now();
       st.peca = Motor.montar(st.an, {
-        produto: st.produto, formato: st.formato,
+        produto: st.produto, formato: st.formato, pedestal: st.pedestal,
         largura: +$('nLarg').value, base: +$('nBase').value, relevo: +$('nRelevo').value,
       });
       st.objetos = Motor.gerar3D(st.peca, coresPeca());
@@ -197,8 +256,8 @@ $('bGerar').onclick = () => {
       const P = st.peca;
       $('info').textContent = `${Motor.PRODUTOS[P.produto].nome}: ${P.largura.toFixed(1)} × ${P.altura.toFixed(1)} mm · ` +
         `${(P.espessura + P.relevo).toFixed(1)} mm de espessura · ${P.camadas.length + 1} cores` +
-        (P.extras.trofeu ? ' · placa + base de encaixe' : '') + ` · ${Math.round(tri / 1000)} mil triângulos`;
-      $('b3mf').disabled = $('bStl').disabled = false;
+        (P.extras.trofeu ? ` · pedestal ${P.extras.trofeu.pedestal.nome}, encaixe de ${P.extras.trofeu.pedestal.profundidade} mm` : '') + ` · ${Math.round(tri / 1000)} mil triângulos`;
+      $('b3mf').disabled = $('bStl').disabled = $('bOrca').disabled = false;
       msg(`Pronto em ${((performance.now() - t0) / 1000).toFixed(1)} s. Arraste para girar e use dois dedos para aproximar.`, 'ok');
     } catch (e) {
       console.error(e);
@@ -225,6 +284,27 @@ $('b3mf').onclick = async () => {
   try { salvar(nomeArq('3mf'), 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', await Motor.exportar3MF(st.objetos, st.nome)); }
   catch (e) { msg('Erro ao gerar o 3MF: ' + e.message, 'err'); }
 };
-$('bStl').onclick = () => salvar(nomeArq('stl'), 'model/stl', Motor.exportarSTL(st.objetos));
+$('bStl').onclick = async () => {
+  try { salvar(`${st.nome}_${st.produto}_STLs_por_cor.zip`, 'application/zip', await Motor.exportarSTLs(st.objetos, coresHex())); }
+  catch (e) { msg('Erro ao gerar os STLs: ' + e.message, 'err'); }
+};
+const PADRAO = ['#111111', '#E3001B', '#FFD400', '#FFFFFF'];
+function coresHex() {
+  const c = coresPeca().map(Motor.hex);
+  for (let i = c.length; i < 4; i++) c.push(PADRAO[i]);
+  return c;
+}
+$('bOrca').onclick = async () => {
+  msg('Montando o projeto do Snapmaker Orca…');
+  try {
+    const bytes = await Motor.exportarOrca(st.objetos, st.nome, {
+      qualidade: $('selQual').value,
+      filamentos: [0, 1, 2, 3].map(i => $('fil' + i).value),
+      cores: coresHex(),
+      ajustes: ajustesImpressao(),
+    });
+    salvar(`${st.nome}_${st.produto}_U1.3mf`, 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', bytes);
+  } catch (e) { console.error(e); msg('Erro ao gerar o projeto: ' + e.message, 'err'); }
+};
 
 function msg(t, cls) { $('msg').textContent = t; $('msg').className = 'msg ' + (cls || ''); }

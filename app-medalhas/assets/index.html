@@ -47,6 +47,13 @@
   .dim { font-variant-numeric: tabular-nums; font-size: 14px; color: var(--muted); }
   .vazio { color: var(--muted); font-size: 14px; text-align: center; padding: 18px 8px; }
   #inFoto { display: none; }
+  select { width: 100%; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: #0e1014; color: var(--text); font-size: 16px; }
+  .grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+  .grade button { padding: 8px 6px; font-size: 12px; font-weight: 600; display: grid; gap: 4px; justify-items: center; background: #0e1014; border: 2px solid transparent; }
+  .grade button.on { border-color: var(--gold); }
+  .grade canvas { width: 72px; height: 48px; }
+  .grade2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -70,14 +77,29 @@
       <button data-v="chaveiro">Chaveiro</button>
       <button data-v="trofeu">Troféu</button>
     </div>
-    <div class="seg" id="segForma">
-      <button data-v="contorno" class="on">Formato do logo</button>
-      <button data-v="circulo">Redonda</button>
-    </div>
+    <label class="f">Formato da peça
+      <select id="selForma">
+        <option value="contorno">Personalizado (segue o contorno da arte)</option>
+        <option value="circulo">Redondo</option>
+        <option value="oval">Oval</option>
+        <option value="hexagono">Hexagonal</option>
+        <option value="octogono">Octogonal</option>
+        <option value="escudo">Escudo</option>
+        <option value="estrela">Estrela</option>
+      </select></label>
     <div class="row">
       <label class="f">Largura (mm)<input id="nLarg" type="number" min="20" max="250" step="1" value="70"></label>
-      <label class="f">Base (mm)<input id="nBase" type="number" min="1.5" max="10" step="0.5" value="3"></label>
-      <label class="f">Relevo (mm)<input id="nRelevo" type="number" min="0.2" max="3" step="0.2" value="0.6"></label>
+      <label class="f">Base preta (mm)<input id="nBase" type="number" min="1.5" max="10" step="0.2" value="3"></label>
+      <label class="f">Relevo das cores (mm)<input id="nRelevo" type="number" min="0.2" max="3" step="0.2" value="0.6"></label>
+    </div>
+    <div class="seg" id="segEsp">
+      <button data-v="2">Base 2 mm</button>
+      <button data-v="3" class="on">Base 3 mm</button>
+      <button data-v="4">Base 4 mm</button>
+    </div>
+    <div id="boxPed" hidden>
+      <div class="dim" style="margin:4px 0 8px">Pedestal do troféu: a placa encaixa no topo dele.</div>
+      <div id="gradePed" class="grade"></div>
     </div>
   </section>
 
@@ -99,16 +121,52 @@
     <button id="bGerar" class="primary" disabled>Gerar peça 3D</button>
     <canvas id="view"></canvas>
     <div id="info" class="dim"></div>
+  </section>
+
+  <section class="card">
+    <h2>5. Otimizador de impressão (Snapmaker U1)</h2>
+    <button id="bRecom" class="gold">Usar o recomendado para medalhas e troféus</button>
     <div class="row">
-      <button id="b3mf" disabled>Salvar 3MF (cores)</button>
-      <button id="bStl" disabled>Salvar STL (1 cor)</button>
+      <label class="f">Qualidade (altura de camada)
+        <select id="selQual"><option value="0.12">0,12 mm · fina</option><option value="0.16">0,16 mm · alta</option><option value="0.20">0,20 mm · padrão</option></select></label>
     </div>
+    <label class="f">Passar ferro
+      <select id="selFerro">
+        <option value="no ironing">Desligado</option>
+        <option value="top">Todas as superfícies de cima (recomendado)</option>
+        <option value="topmost">Só a superfície mais alta</option>
+        <option value="solid">Todas as camadas sólidas (lento)</option>
+      </select></label>
+    <div class="row" id="boxFerro">
+      <label class="f">Fluxo (%)<input id="nFerroFluxo" type="number" min="5" max="30" step="1" value="12"></label>
+      <label class="f">Espaçamento (mm)<input id="nFerroEsp" type="number" min="0.05" max="0.3" step="0.01" value="0.12"></label>
+      <label class="f">Velocidade (mm/s)<input id="nFerroVel" type="number" min="10" max="100" step="5" value="30"></label>
+    </div>
+    <div class="row">
+      <label class="f">Paredes<input id="nParedes" type="number" min="1" max="8" step="1" value="3"></label>
+      <label class="f">Camadas de topo<input id="nTopo" type="number" min="2" max="12" step="1" value="5"></label>
+      <label class="f">Preenchimento (%)<input id="nInfill" type="number" min="0" max="100" step="5" value="20"></label>
+    </div>
+    <div class="dim">Material de cada filamento:</div>
+    <div id="listaFil" class="grade2"></div>
+  </section>
+
+  <section class="card">
+    <h2>6. Exportar</h2>
+    <button id="bOrca" class="primary" disabled>Projeto Snapmaker Orca pronto (.3mf)</button>
+    <div class="dim">Abre na U1 com as 4 cores, os materiais e todas as configurações acima.</div>
+    <div class="row">
+      <button id="b3mf" disabled>3MF universal</button>
+      <button id="bStl" disabled>STLs por cor (.zip)</button>
+    </div>
+    <div class="dim">3MF universal: PrusaSlicer, OrcaSlicer, Bambu Studio. STLs por cor: qualquer fatiador; abra todos juntos como um objeto de várias partes.</div>
     <div id="msg" class="msg"></div>
   </section>
 </main>
 <script src="lib/clipper.js"></script>
 <script src="lib/earcut.min.js"></script>
 <script src="lib/three.min.js"></script>
+<script src="perfis_u1.js"></script>
 <script src="motor.js"></script>
 <script src="app.js"></script>
 </body>

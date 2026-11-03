@@ -356,6 +356,102 @@ const Motor = (() => {
     return executar(C().ClipType.ctUnion, laços, [], 'par');
   }
 
+  // ------------------------------------------------------------------ formas
+  const P = pts => [pts.map(([x, y]) => ({ X: Math.round(x * SC), Y: Math.round(y * SC) }))];
+  function elipse(a, b, n = 120) { const p = []; for (let i = 0; i < n; i++) { const t = 2 * Math.PI * i / n; p.push([a * Math.cos(t), b * Math.sin(t)]); } return P(p); }
+  function poligono(n, r, rot = Math.PI / 2, sx = 1, sy = 1) { const p = []; for (let i = 0; i < n; i++) { const t = rot + 2 * Math.PI * i / n; p.push([r * Math.cos(t) * sx, r * Math.sin(t) * sy]); } return P(p); }
+  function estrela(R, r, n = 5) { const p = []; for (let i = 0; i < 2 * n; i++) { const t = Math.PI / 2 + Math.PI * i / n, q = i % 2 ? r : R; p.push([q * Math.cos(t), q * Math.sin(t)]); } return P(p); }
+  // escudo: topo reto, laterais retas e base em ponta (curvas de Bézier)
+  function escudo(L, H) {
+    const pts = [[-L / 2, H / 2], [L / 2, H / 2], [L / 2, 0]];
+    for (let i = 1; i <= 30; i++) {
+      const t = i / 30, u = 1 - t;           // (L/2,0) -> controle (L/2,-0.38H) -> (0,-H/2)
+      pts.push([u * u * L / 2 + 2 * u * t * L / 2, 2 * u * t * (-0.38 * H) + t * t * (-H / 2)]);
+    }
+    for (let i = 29; i >= 0; i--) {
+      const t = i / 30, u = 1 - t;
+      pts.push([-(u * u * L / 2 + 2 * u * t * L / 2), 2 * u * t * (-0.38 * H) + t * t * (-H / 2)]);
+    }
+    return deslocar(deslocar(P(pts), -Math.min(L, H) * 0.04), Math.min(L, H) * 0.04);  // cantos arredondados
+  }
+  const ret0 = (L, D, r = 2) => retArredondado(-L / 2, -D / 2, L / 2, D / 2, Math.min(r, L / 4, D / 4));
+
+  // contorno-base da medalha, centrado na origem, para um desenho de largura w e altura h
+  function formaBase(tipo, w, h) {
+    const m = Math.max(w, h);
+    switch (tipo) {
+      case 'circulo': return elipse(m / 2, m / 2, 160);
+      case 'oval': return elipse(w / 2, h / 2, 160);
+      case 'hexagono': return poligono(6, m / 2, Math.PI / 2);
+      case 'octogono': return poligono(8, m / 2, Math.PI / 8);
+      case 'escudo': return escudo(w, h * 1.1);
+      case 'estrela': return estrela(m * 0.75, m * 0.42);
+      default: return elipse(m / 2, m / 2, 160);
+    }
+  }
+
+  // ------------------------------------------------------------------ pedestais do troféu
+  // Cada pedestal é uma pilha de níveis; o último nível é reto e tem o encaixe da placa.
+  const Pedestais = (() => {
+    const R = (L, D, r) => () => ret0(L, D, r);
+    const lista = {
+      ret1:   { nome: 'Retangular',                 niveis: (L, D) => [[ret0(L, D, 3), 14]] },
+      ret2:   { nome: 'Retangular 2 degraus',       niveis: (L, D) => [[ret0(L, D, 3), 6], [ret0(L * .8, D * .75, 3), 10]] },
+      ret3:   { nome: 'Retangular 3 degraus',       niveis: (L, D) => [[ret0(L, D, 3), 5], [ret0(L * .86, D * .8, 3), 5], [ret0(L * .72, D * .6, 3), 10]] },
+      piram:  { nome: 'Pirâmide truncada',          niveis: (L, D) => [[ret0(L, D, 2), 10, .78], [ret0(L * .78, D * .78, 2), 10]] },
+      chanf:  { nome: 'Retangular chanfrado',       niveis: (L, D) => [[ret0(L, D, 2), 3, .94], [ret0(L * .94, D * .94, 2), 11]] },
+      quad:   { nome: 'Quadrado escalonado',        niveis: (L) => [[ret0(L, L, 3), 6], [ret0(L * .8, L * .8, 3), 6], [ret0(L * .6, L * .6, 3), 10]] },
+      red1:   { nome: 'Redondo',                    niveis: (L) => [[elipse(L / 2, L / 2), 14]] },
+      red2:   { nome: 'Redondo 2 degraus',          niveis: (L) => [[elipse(L / 2, L / 2), 6], [elipse(L * .4, L * .4), 10]] },
+      red3:   { nome: 'Redondo 3 degraus',          niveis: (L) => [[elipse(L / 2, L / 2), 5], [elipse(L * .42, L * .42), 5], [elipse(L * .34, L * .34), 10]] },
+      cone:   { nome: 'Tronco de cone',             niveis: (L) => [[elipse(L / 2, L / 2), 12, .7], [elipse(L * .35, L * .35), 10]] },
+      oval1:  { nome: 'Oval',                       niveis: (L, D) => [[elipse(L / 2, D / 2), 14]] },
+      oval2:  { nome: 'Oval 2 degraus',             niveis: (L, D) => [[elipse(L / 2, D / 2), 6], [elipse(L * .4, D * .38), 10]] },
+      hex1:   { nome: 'Hexagonal',                  niveis: (L) => [[poligono(6, L / 2, 0), 14]] },
+      hex2:   { nome: 'Hexagonal escalonado',       niveis: (L) => [[poligono(6, L / 2, 0), 6], [poligono(6, L * .4, 0), 10]] },
+      oct1:   { nome: 'Octogonal',                  niveis: (L) => [[poligono(8, L / 2, Math.PI / 8), 14]] },
+      oct2:   { nome: 'Octogonal cônico',           niveis: (L) => [[poligono(8, L / 2, Math.PI / 8), 10, .75], [poligono(8, L * .375, Math.PI / 8), 10]] },
+      pent:   { nome: 'Pentagonal',                 niveis: (L) => [[poligono(5, L / 2), 6], [poligono(5, L * .4), 10]] },
+      losango:{ nome: 'Losango',                    niveis: (L, D) => [[poligono(4, L / 2, 0, 1, D / L * 1.6), 6], [ret0(L * .5, D * .55, 3), 10]] },
+      estrela:{ nome: 'Estrela',                    niveis: (L) => [[estrela(L / 2, L * .27), 7], [elipse(L * .26, L * .26), 10]] },
+      coluna: { nome: 'Coluna clássica',            niveis: (L, D) => [[ret0(L, D, 2), 5], [ret0(L * .8, D * .8, 2), 3], [ret0(L * .45, D * .55, 1), 16], [ret0(L * .6, D * .7, 2), 10]] },
+      podio:  { nome: 'Pódio 1º 2º 3º',             podio: true },
+      moldura:{ nome: 'Base com moldura',           niveis: (L, D) => [[ret0(L, D, 6), 4], [ret0(L * .92, D * .85, 4), 3, .97], [ret0(L * .86, D * .78, 4), 10]] },
+      redcol: { nome: 'Redondo com coluna',         niveis: (L) => [[elipse(L / 2, L / 2), 5], [elipse(L * .4, L * .4), 4, .85], [elipse(L * .34, L * .34), 10]] },
+    };
+    function construir(tipo, larguraPlaca, tabL, esp) {
+      const def = lista[tipo] || lista.ret2;
+      const furo = retangulo(-(tabL + 0.5) / 2, -(esp + 0.5) / 2, (tabL + 0.5) / 2, (esp + 0.5) / 2);
+      if (def.podio) {
+        const w = Math.max(tabL + 14, larguraPlaca * 0.34), D = Math.max(32, esp + 26);
+        const bloco = (x, h, comFuro) => {
+          let p = ret0(w - 0.4, D, 2).map(r => r.map(q => ({ X: q.X + x * SC, Y: q.Y })));
+          if (comFuro) p = diferenca(p, furo);
+          return { paths: p, z0: 0, z1: h };
+        };
+        return { nome: def.nome, profundidade: 14, D, niveis: [bloco(-w, 9), bloco(0, 14, true), bloco(w, 6)] };
+      }
+      // tamanho: largura proporcional à placa e topo grande o bastante para o encaixe
+      let L = Math.max(larguraPlaca * 0.8, 60), D = Math.max(L * 0.42, 34);
+      for (let i = 0; i < 12; i++) {
+        const nv = def.niveis(L, D), topo = limites(nv[nv.length - 1][0]);
+        if (topo.x1 - topo.x0 >= tabL + 10 && topo.y1 - topo.y0 >= esp + 10) break;
+        L *= 1.12; D *= 1.12;
+      }
+      const nv = def.niveis(L, D);
+      let z = 0;
+      const niveis = nv.map(([paths, h, escala], i) => {
+        const ultimo = i === nv.length - 1;
+        const o = { paths: ultimo ? diferenca(paths, furo) : paths, z0: z, z1: z + h, escala: ultimo ? 1 : (escala || 1) };
+        z += h;
+        return o;
+      });
+      const bb = limites(nv[0][0]);
+      return { nome: def.nome, profundidade: nv[nv.length - 1][1], D: bb.y1 - bb.y0, niveis };
+    }
+    return { lista, construir };
+  })();
+
   // ------------------------------------------------------------------ montagem da peça
   function montar(an, opt) {
     const { im, sil, grupos } = an;
@@ -371,11 +467,21 @@ const Motor = (() => {
     // contorno da peça
     let silPaths = mascaraParaPaths(sil, W, H, mmPx);
     let contorno;
-    if (opt.formato === 'circulo') {
+    if (opt.formato && opt.formato !== 'contorno') {
       const b = limites(silPaths), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-      let r = 0;
-      for (const rr of silPaths) for (const q of rr) r = Math.max(r, Math.hypot(q.X / SC - cx, q.Y / SC - cy));
-      contorno = circulo(cx, cy, r + borda, 144);
+      const forma = formaBase(opt.formato, b.x1 - b.x0, b.y1 - b.y0);
+      const naPosicao = k => forma.map(r => r.map(q => ({ X: q.X * k + cx * SC, Y: q.Y * k + cy * SC })));
+      const cabe = k => areaPaths(diferenca(silPaths, naPosicao(k))) < 0.02;
+      let lo = 0.3, hi = 1.2;
+      while (!cabe(hi) && hi < 20) { lo = hi; hi *= 1.4; }
+      for (let i = 0; i < 16; i++) { const m = (lo + hi) / 2; if (cabe(m)) hi = m; else lo = m; }
+      contorno = deslocar(naPosicao(hi), borda);
+      // a forma cresce para caber a arte: reajusta a escala para a largura final pedida
+      const bf = limites(contorno), larg = bf.x1 - bf.x0;
+      if (!opt._ajustado && Math.abs(larg - opt.largura) > 0.3) {
+        const k = (larg - 2 * borda) / (opt.largura - 2 * borda);
+        return montar(an, Object.assign({}, opt, { _ajustado: true, largura: (opt.largura - 2 * borda) / k + 2 * borda, _alvo: opt.largura }));
+      }
     } else {
       contorno = deslocar(silPaths, borda);
       for (const d of [2, 4, 7, 12]) {               // junta ilhas soltas
@@ -402,10 +508,11 @@ const Motor = (() => {
       furos = circulo(cx, cy, rI);
     } else if (opt.produto === 'trofeu') {
       const tabL = Math.min(30, Math.max(14, (b.x1 - b.x0) * 0.3));
-      const hBase = 14;
+      const ped = Pedestais.construir(opt.pedestal || 'ret2', b.x1 - b.x0, tabL, espessura);
+      const prof = ped.profundidade;
       const fundo = limites(intersecao(contorno, retangulo(cx - tabL / 2, b.y0, cx + tabL / 2, b.y1))).y0;
-      contorno = uniao(contorno, retangulo(cx - tabL / 2, fundo - (hBase - 1), cx + tabL / 2, fundo + 3));
-      extras.trofeu = { tabL, hBase, espessura };
+      contorno = uniao(contorno, retangulo(cx - tabL / 2, fundo - (prof - 1), cx + tabL / 2, fundo + 3));
+      extras.trofeu = { tabL, espessura, pedestal: ped };
     }
     contorno = diferenca(contorno, furos);
 
@@ -458,7 +565,7 @@ const Motor = (() => {
 
   // ------------------------------------------------------------------ malhas 3D
   function novaMalha() { return { pos: [], idx: [] }; }
-  function extrudar(paths, z0, z1, malha) {
+  function extrudar(paths, z0, z1, malha, escalaTopo = 1) {
     // encolher 0,01 mm desfaz pontos onde um furo encosta na borda (geram malha aberta)
     const ex = C().JS.PolyTreeToExPolygons(arvore(deslocar(paths, -0.01)));
     for (const e of ex) {
@@ -471,7 +578,7 @@ const Motor = (() => {
       for (const r of aneis) { if (plano.length) furos.push(plano.length / 2); for (const p of r) plano.push(p[0], p[1]); }
       const n = plano.length / 2, o = malha.pos.length / 3;
       for (let i = 0; i < n; i++) malha.pos.push(plano[2 * i], plano[2 * i + 1], z0);
-      for (let i = 0; i < n; i++) malha.pos.push(plano[2 * i], plano[2 * i + 1], z1);
+      for (let i = 0; i < n; i++) malha.pos.push(plano[2 * i] * escalaTopo, plano[2 * i + 1] * escalaTopo, z1);
       const tri = earcut(plano, furos);
       for (let t = 0; t < tri.length; t += 3) {
         let [a, b, c] = [tri[t], tri[t + 1], tri[t + 2]];
@@ -503,13 +610,13 @@ const Motor = (() => {
     }));
     objetos.push({ nome: PRODUTOS[peca.produto].nome, partes, desloc: [0, 0] });
     if (peca.extras.trofeu) {
-      const { tabL, hBase, espessura } = peca.extras.trofeu;
-      const L = Math.max(peca.largura * 0.75, tabL + 30), D = 30;
-      const encaixe = retangulo(-(tabL + 0.5) / 2, -(espessura + 0.5) / 2, (tabL + 0.5) / 2, (espessura + 0.5) / 2);
-      const pe = diferenca(retArredondado(-L / 2, -D / 2, L / 2, D / 2, 3), encaixe);
+      const ped = peca.extras.trofeu.pedestal;
       objetos.push({
-        nome: 'Base do troféu', desloc: [0, -(peca.altura / 2 + D / 2 + 8)],
-        partes: [{ nome: 'pedestal', cor: cores[0], filamento: 1, malha: extrudar(pe, 0, hBase, novaMalha()) }],
+        nome: 'Pedestal ' + ped.nome, desloc: [0, -(peca.altura / 2 + ped.D / 2 + 8)],
+        partes: ped.niveis.map((nv, i) => ({
+          nome: 'pedestal_' + (i + 1), cor: cores[0], filamento: 1,
+          malha: extrudar(nv.paths, nv.z0, nv.z1, novaMalha(), nv.escala || 1),
+        })),
       });
     }
     return objetos;
@@ -624,5 +731,93 @@ ${objXml}</resources>
     return new Uint8Array(buf);
   }
 
-  return { PRODUTOS, analisar, montar, gerar3D, exportar3MF, exportarSTL, hex, rasterizar };
+  // ---------- STLs por cor (.zip): um arquivo por filamento, todos na mesma posição
+  function stlDePartes(lista) { // [{malha, desloc}]
+    let nt = 0; lista.forEach(p => { nt += p.malha.idx.length / 3; });
+    const buf = new ArrayBuffer(84 + nt * 50), dv = new DataView(buf);
+    dv.setUint32(80, nt, true);
+    let o = 84;
+    for (const { malha, desloc } of lista) {
+      const P = malha.pos, I = malha.idx;
+      for (let i = 0; i < I.length; i += 3) {
+        o += 12;
+        for (let k = 0; k < 3; k++) { const j = I[i + k] * 3; dv.setFloat32(o, P[j] + desloc[0], true); dv.setFloat32(o + 4, P[j + 1] + desloc[1], true); dv.setFloat32(o + 8, P[j + 2], true); o += 12; }
+        o += 2;
+      }
+    }
+    return new Uint8Array(buf);
+  }
+  async function exportarSTLs(objetos, nomesCores) {
+    const arquivos = [], enc = new TextEncoder();
+    let leia = 'Medalha/peça em STL, um arquivo por cor.\r\n\r\nComo usar em qualquer fatiador:\r\n' +
+      '1. Abra TODOS os arquivos de uma vez.\r\n2. Quando perguntar se é um objeto com várias partes, responda SIM.\r\n' +
+      '3. Escolha o filamento de cada parte conforme o número no nome do arquivo.\r\n\r\n';
+    objetos.forEach((ob, k) => {
+      const grupos = {};
+      ob.partes.forEach(p => { (grupos[p.filamento] = grupos[p.filamento] || []).push({ malha: p.malha, desloc: ob.desloc }); });
+      Object.keys(grupos).forEach(f => {
+        const ascii = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '_');
+        const nome = `${String(k + 1)}_${ascii(ob.nome)}_filamento${f}_cor${(nomesCores[f - 1] || '').replace('#', '')}.stl`.replace(/_+/g, '_');
+        arquivos.push({ nome, dados: stlDePartes(grupos[f]) });
+        leia += `${nome}  ->  filamento ${f}\r\n`;
+      });
+    });
+    arquivos.push({ nome: 'LEIA-ME.txt', dados: enc.encode(leia) });
+    return zip(arquivos);
+  }
+
+  // ---------- Projeto do Snapmaker Orca (U1) com todas as configurações
+  // opt: {qualidade:'0.12'|'0.16'|'0.20', filamentos:[tipo x4], cores:[hex x4], ajustes:{chave:valor}}
+  async function exportarOrca(objetos, titulo, opt) {
+    const PF = PERFIS_U1, centro = 135.5;
+    const cfg = Object.assign({}, PF.impressora.cfg, PF.qualidades[opt.qualidade].cfg);
+    const fil = opt.filamentos.map(t => PF.filamentos[t] || PF.filamentos.PLA);
+    const chavesFil = new Set(); fil.forEach(f => Object.keys(f.cfg).forEach(k => chavesFil.add(k)));
+    for (const k of chavesFil) cfg[k] = fil.map(f => (f.cfg[k] || PF.filamentos.PLA.cfg[k] || [''])[0]);
+    cfg.filament_colour = opt.cores.map(c => c.toUpperCase());
+    cfg.filament_settings_id = fil.map(f => f.nome);
+    cfg.print_settings_id = PF.qualidades[opt.qualidade].nome;
+    cfg.printer_settings_id = PF.impressora.nome;
+    for (const [k, v] of Object.entries(opt.ajustes || {})) cfg[k] = Array.isArray(v) ? v.map(String) : String(v);
+    cfg.name = 'project_settings'; cfg.from = 'project'; cfg.version = PF.versao;
+
+    let id = 1, recursos = '', itens = '', cfgObj = '', placa = '';
+    objetos.forEach((ob, k) => {
+      const comps = [], partes = [];
+      ob.partes.forEach(p => {
+        const P = p.malha.pos, I = p.malha.idx, v = [], t = [];
+        for (let i = 0; i < P.length; i += 3) v.push(`<vertex x="${P[i].toFixed(4)}" y="${P[i + 1].toFixed(4)}" z="${P[i + 2].toFixed(4)}"/>`);
+        for (let i = 0; i < I.length; i += 3) t.push(`<triangle v1="${I[i]}" v2="${I[i + 1]}" v3="${I[i + 2]}"/>`);
+        recursos += `<object id="${id}" type="model"><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>\n`;
+        comps.push(`<component objectid="${id}"/>`);
+        partes.push(`  <part id="${id}" subtype="normal_part">\n   <metadata key="name" value="${esc(p.nome)}"/>\n   <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n   <metadata key="extruder" value="${p.filamento}"/>\n  </part>\n`);
+        id++;
+      });
+      const oid = id++;
+      recursos += `<object id="${oid}" name="${esc(ob.nome)}" type="model"><components>${comps.join('')}</components></object>\n`;
+      itens += `<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${(centro + ob.desloc[0]).toFixed(3)} ${(centro + ob.desloc[1]).toFixed(3)} 0" printable="1"/>`;
+      cfgObj += ` <object id="${oid}">\n  <metadata key="name" value="${esc(ob.nome)}"/>\n  <metadata key="extruder" value="1"/>\n${partes.join('')} </object>\n`;
+      placa += `  <model_instance>\n   <metadata key="object_id" value="${oid}"/>\n   <metadata key="instance_id" value="0"/>\n   <metadata key="identify_id" value="${100 + k}"/>\n  </model_instance>\n`;
+    });
+    const modelo = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">
+<metadata name="Application">Snapmaker_Orca-${PF.versao}</metadata>
+<metadata name="Snapmaker_Orca:3mfVersion">1</metadata>
+<metadata name="Title">${esc(titulo)}</metadata>
+<resources>
+${recursos}</resources>
+<build>${itens}</build>
+</model>`;
+    const config = `<?xml version="1.0" encoding="UTF-8"?>\n<config>\n${cfgObj} <plate>\n  <metadata key="plater_id" value="1"/>\n  <metadata key="plater_name" value=""/>\n  <metadata key="locked" value="false"/>\n${placa} </plate>\n</config>\n`;
+    const enc = new TextEncoder();
+    return zip([
+      { nome: '[Content_Types].xml', dados: enc.encode('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="config" ContentType="text/plain"/></Types>') },
+      { nome: '_rels/.rels', dados: enc.encode('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>') },
+      { nome: '3D/3dmodel.model', dados: enc.encode(modelo) },
+      { nome: 'Metadata/model_settings.config', dados: enc.encode(config) },
+      { nome: 'Metadata/project_settings.config', dados: enc.encode(JSON.stringify(cfg, null, 4)) },
+    ]);
+  }
+
+  return { PRODUTOS, analisar, montar, gerar3D, exportar3MF, exportarSTL, exportarSTLs, exportarOrca, hex, rasterizar, Pedestais };
 })();
