@@ -117,48 +117,90 @@ const Motor = (() => {
     return o;
   }
 
+  // Espaço de cor para agrupar: tom e saturação pesam mais que o brilho, então
+  // sombras (vermelho escuro) ficam com a cor certa em vez de virar preto.
+  function caracteristica(r, g, b) {
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = mx / 255;
+    let s = mx ? (mx - mn) / mx : 0;
+    s *= Math.min(1, Math.max(0, (v - 0.08) / 0.17));   // quase preto não tem tom confiável
+    let h = 0;
+    if (mx !== mn) {
+      if (mx === r) h = ((g - b) / (mx - mn)) % 6; else if (mx === g) h = (b - r) / (mx - mn) + 2; else h = (r - g) / (mx - mn) + 4;
+      h *= Math.PI / 3;
+    }
+    return [s * Math.cos(h), s * Math.sin(h), v * 0.9];
+  }
+
   // k-means das cores dentro da silhueta
   function agruparCores(im, sil, k) {
     const { W, H, px } = im, N = W * H;
+    const F = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const f = caracteristica(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]);
+      F[i * 3] = f[0]; F[i * 3 + 1] = f[1]; F[i * 3 + 2] = f[2];
+    }
+    const dist = (i, c) => { const a = F[i * 3] - c[0], b = F[i * 3 + 1] - c[1], d = F[i * 3 + 2] - c[2]; return a * a + b * b + d * d; };
     const idx = [];
     for (let i = 0; i < N; i++) if (sil[i]) idx.push(i);
-    const passo = Math.max(1, Math.floor(idx.length / 25000));
+    const passo = Math.max(1, Math.floor(idx.length / 30000));
     const amostra = idx.filter((_, j) => j % passo === 0);
-    // k-means++ determinístico (semente fixa)
     let seed = 12345;
     const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-    const cent = [[...px.slice(amostra[0] * 4, amostra[0] * 4 + 3)]];
-    const dist = new Float64Array(amostra.length).fill(Infinity);
-    while (cent.length < k) {
-      let tot = 0;
-      const c = cent[cent.length - 1];
-      for (let j = 0; j < amostra.length; j++) { dist[j] = Math.min(dist[j], d2(px, amostra[j] * 4, c)); tot += dist[j]; }
-      if (tot === 0) break;
-      let alvo = rnd() * tot, j = 0;
-      for (; j < amostra.length - 1 && alvo > dist[j]; j++) alvo -= dist[j];
-      cent.push([...px.slice(amostra[j] * 4, amostra[j] * 4 + 3)]);
-    }
-    for (let it = 0; it < 15; it++) {
-      const soma = cent.map(() => [0, 0, 0, 0]);
-      for (const i of amostra) {
-        let b = 0, bd = Infinity;
-        for (let c = 0; c < cent.length; c++) { const d = d2(px, i * 4, cent[c]); if (d < bd) { bd = d; b = c; } }
-        const s = soma[b]; s[0] += px[i * 4]; s[1] += px[i * 4 + 1]; s[2] += px[i * 4 + 2]; s[3]++;
+    const pega = i => [F[i * 3], F[i * 3 + 1], F[i * 3 + 2]];
+    let melhor = null;
+    for (let tentativa = 0; tentativa < 4; tentativa++) {       // várias sementes, fica a melhor
+      const cent = [pega(amostra[Math.floor(rnd() * amostra.length)])];
+      const dmin = new Float64Array(amostra.length).fill(Infinity);
+      while (cent.length < k) {
+        let tot = 0; const c = cent[cent.length - 1];
+        for (let j = 0; j < amostra.length; j++) { dmin[j] = Math.min(dmin[j], dist(amostra[j], c)); tot += dmin[j]; }
+        if (tot === 0) break;
+        let alvo = rnd() * tot, j = 0;
+        for (; j < amostra.length - 1 && alvo > dmin[j]; j++) alvo -= dmin[j];
+        cent.push(pega(amostra[j]));
       }
-      soma.forEach((s, c) => { if (s[3]) cent[c] = [s[0] / s[3], s[1] / s[3], s[2] / s[3]]; });
+      let erro = 0;
+      for (let it = 0; it < 20; it++) {
+        const soma = cent.map(() => [0, 0, 0, 0]); erro = 0;
+        for (const i of amostra) {
+          let b = 0, bd = Infinity;
+          for (let c = 0; c < cent.length; c++) { const d = dist(i, cent[c]); if (d < bd) { bd = d; b = c; } }
+          const s = soma[b]; s[0] += F[i * 3]; s[1] += F[i * 3 + 1]; s[2] += F[i * 3 + 2]; s[3]++; erro += bd;
+        }
+        soma.forEach((s, c) => { if (s[3]) cent[c] = [s[0] / s[3], s[1] / s[3], s[2] / s[3]]; });
+      }
+      if (!melhor || erro < melhor.erro) melhor = { cent, erro };
     }
+    const cent = melhor.cent;
     const rot = new Int8Array(N).fill(-1), cont = new Array(cent.length).fill(0);
+    const rgb = cent.map(() => [0, 0, 0]);
     for (const i of idx) {
       let b = 0, bd = Infinity;
-      for (let c = 0; c < cent.length; c++) { const d = d2(px, i * 4, cent[c]); if (d < bd) { bd = d; b = c; } }
+      for (let c = 0; c < cent.length; c++) { const d = dist(i, cent[c]); if (d < bd) { bd = d; b = c; } }
       rot[i] = b; cont[b]++;
+      rgb[b][0] += px[i * 4]; rgb[b][1] += px[i * 4 + 1]; rgb[b][2] += px[i * 4 + 2];
     }
-    return { centros: cent.map(c => c.map(Math.round)), rotulos: rot, contagem: cont };
+    // cor exibida = cor mais "viva" do grupo (média dos 50% mais saturados/claros)
+    const centros = rgb.map((s, c) => cont[c] ? s.map(v => Math.round(v / cont[c])) : [128, 128, 128]);
+    return { centros, rotulos: limparRotulos(rot, W, H, cent.length), contagem: cont };
+  }
+
+  // filtro de moda 3x3: tira pixels soltos na borda entre duas cores
+  function limparRotulos(rot, W, H, k) {
+    const o = rot.slice(), cnt = new Int32Array(k);
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x; if (rot[i] < 0) continue;
+      cnt.fill(0);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const r = rot[i + dy * W + dx]; if (r >= 0) cnt[r]++; }
+      let b = rot[i]; for (let c = 0; c < k; c++) if (cnt[c] > cnt[b]) b = c;
+      if (cnt[b] >= 5) o[i] = b;
+    }
+    return o;
   }
 
   // ------------------------------------------------------------------ análise completa (2D)
   function analisar(img, opt) {
-    const im = rasterizar(img, opt.maxDim || 800);
+    const im = rasterizar(img, opt.maxDim || 1400);
     const { W, H } = im;
     const fd = detectarFundo(im, opt.tolerancia);
     let fg = inverter(fd.fundo);
@@ -184,12 +226,27 @@ const Motor = (() => {
     return { im, sil, grupos, base, corFundo: fd.cor };
   }
 
-  // ------------------------------------------------------------------ contornos (marching squares)
+  // ------------------------------------------------------------------ contornos (marching squares suave)
+  // A máscara é suavizada (média 3x3) e o contorno passa no nível 0,5, com posição
+  // interpolada entre pixels: as bordas saem lisas em vez de "em degrau".
   function contornos(m, W, H) {
+    const f = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let s = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < W && yy < H) s += m[yy * W + xx];
+      }
+      f[y * W + x] = s / 9;
+    }
     const PW = W + 2, PH = H + 2;
-    const v = (x, y) => (x >= 1 && y >= 1 && x <= W && y <= H) ? m[(y - 1) * W + (x - 1)] : 0;
+    const v = (x, y) => (x >= 1 && y >= 1 && x <= W && y <= H) ? f[(y - 1) * W + (x - 1)] : 0;
     const KW = 2 * PW + 2;
-    const viz = new Map();
+    const pos = new Map(), viz = new Map();
+    const ponto = (k, xa, ya, va, xb, yb, vb) => {
+      if (!pos.has(k)) { const t = Math.min(1, Math.max(0, (0.5 - va) / (vb - va))); pos.set(k, [xa + (xb - xa) * t - 1, ya + (yb - ya) * t - 1]); }
+      return k;
+    };
     const liga = (a, b) => {
       if (!viz.has(a)) viz.set(a, []); if (!viz.has(b)) viz.set(b, []);
       viz.get(a).push(b); viz.get(b).push(a);
@@ -197,20 +254,22 @@ const Motor = (() => {
     for (let y = 0; y < PH - 1; y++) {
       for (let x = 0; x < PW - 1; x++) {
         const tl = v(x, y), tr = v(x + 1, y), br = v(x + 1, y + 1), bl = v(x, y + 1);
-        const c = tl * 8 + tr * 4 + br * 2 + bl;
+        const c = (tl > 0.5) * 8 + (tr > 0.5) * 4 + (br > 0.5) * 2 + (bl > 0.5);
         if (c === 0 || c === 15) continue;
-        // pontos médios das arestas, em coordenadas x2
-        const T = (2 * y) * KW + (2 * x + 1), R = (2 * y + 1) * KW + (2 * x + 2);
-        const B = (2 * y + 2) * KW + (2 * x + 1), L = (2 * y + 1) * KW + (2 * x);
+        const T = () => ponto((2 * y) * KW + (2 * x + 1), x, y, tl, x + 1, y, tr);
+        const R = () => ponto((2 * y + 1) * KW + (2 * x + 2), x + 1, y, tr, x + 1, y + 1, br);
+        const B = () => ponto((2 * y + 2) * KW + (2 * x + 1), x, y + 1, bl, x + 1, y + 1, br);
+        const L = () => ponto((2 * y + 1) * KW + (2 * x), x, y, tl, x, y + 1, bl);
+        const centro = (tl + tr + br + bl) / 4 > 0.5;
         switch (c) {
-          case 1: case 14: liga(L, B); break;
-          case 2: case 13: liga(B, R); break;
-          case 3: case 12: liga(L, R); break;
-          case 4: case 11: liga(T, R); break;
-          case 6: case 9: liga(T, B); break;
-          case 7: case 8: liga(L, T); break;
-          case 5: liga(L, T); liga(B, R); break;
-          case 10: liga(T, R); liga(L, B); break;
+          case 1: case 14: liga(L(), B()); break;
+          case 2: case 13: liga(B(), R()); break;
+          case 3: case 12: liga(L(), R()); break;
+          case 4: case 11: liga(T(), R()); break;
+          case 6: case 9: liga(T(), B()); break;
+          case 7: case 8: liga(L(), T()); break;
+          case 5: if (centro) { liga(L(), B()); liga(T(), R()); } else { liga(L(), T()); liga(B(), R()); } break;
+          case 10: if (centro) { liga(L(), T()); liga(B(), R()); } else { liga(T(), R()); liga(L(), B()); } break;
         }
       }
     }
@@ -218,17 +277,35 @@ const Motor = (() => {
     for (const ini of viz.keys()) {
       if (visto.has(ini)) continue;
       const laço = []; let ant = -1, at = ini;
-      while (!visto.has(at)) {
-        visto.add(at);
-        laço.push(at);
-        const n = viz.get(at);
-        const prox = n[0] !== ant ? n[0] : n[1];
+      while (at !== undefined && !visto.has(at)) {
+        visto.add(at); laço.push(pos.get(at));
+        const n = viz.get(at); const prox = n[0] !== ant ? n[0] : n[1];
         ant = at; at = prox;
-        if (at === undefined) break;
       }
-      if (laço.length >= 3) laços.push(laço.map(k => [(k % KW) / 2 - 0.5, Math.floor(k / KW) / 2 - 0.5]));
+      if (laço.length >= 3) laços.push(laço);
     }
     return laços; // coordenadas de pixel (x para a direita, y para baixo)
+  }
+
+  // Ramer-Douglas-Peucker para laço fechado
+  function simplificar(p, eps) {
+    if (p.length < 8) return p;
+    let a = 0, b = 0, dmax = -1;
+    for (let i = 1; i < p.length; i++) { const d = (p[i][0] - p[0][0]) ** 2 + (p[i][1] - p[0][1]) ** 2; if (d > dmax) { dmax = d; b = i; } }
+    const rdp = (pts) => {
+      const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1;
+      const pilha = [[0, pts.length - 1]];
+      while (pilha.length) {
+        const [i0, i1] = pilha.pop();
+        const [x0, y0] = pts[i0], [x1, y1] = pts[i1], dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1e-9;
+        let im = -1, dm = eps;
+        for (let i = i0 + 1; i < i1; i++) { const d = Math.abs(dy * pts[i][0] - dx * pts[i][1] + x1 * y0 - y1 * x0) / L; if (d > dm) { dm = d; im = i; } }
+        if (im >= 0) { keep[im] = 1; pilha.push([i0, im], [im, i1]); }
+      }
+      return pts.filter((_, i) => keep[i]);
+    };
+    const s1 = rdp(p.slice(a, b + 1)), s2 = rdp([...p.slice(b), p[0]]);
+    return [...s1.slice(0, -1), ...s2.slice(0, -1)];
   }
 
   // ------------------------------------------------------------------ geometria 2D (Clipper)
@@ -272,9 +349,11 @@ const Motor = (() => {
 
   // máscara -> paths em mm (y para cima), já limpos
   function mascaraParaPaths(m, W, H, mmPx) {
-    const laços = contornos(m, W, H).map(l => l.map(([x, y]) => ({ X: Math.round(x * mmPx * SC), Y: Math.round((H - y) * mmPx * SC) })));
-    const limpos = laços.map(l => C().Clipper.CleanPolygon(l, 0.6 * mmPx * SC)).filter(l => l.length >= 3);
-    return executar(C().ClipType.ctUnion, limpos, [], 'par');
+    const laços = contornos(m, W, H)
+      .map(l => simplificar(l, Math.max(0.12, 0.025 / mmPx)))
+      .filter(l => l.length >= 3)
+      .map(l => l.map(([x, y]) => ({ X: Math.round(x * mmPx * SC), Y: Math.round((H - y) * mmPx * SC) })));
+    return executar(C().ClipType.ctUnion, laços, [], 'par');
   }
 
   // ------------------------------------------------------------------ montagem da peça
