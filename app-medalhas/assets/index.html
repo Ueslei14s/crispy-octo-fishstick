@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Forja 3D</title>
+<style>
+  :root {
+    --bg: #111317; --card: #1a1d23; --line: #2b3039; --text: #f0f2f5; --muted: #9aa3ae;
+    --accent: #ff4d2e; --gold: #ffc531; --ok: #38c172; --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, Roboto, sans-serif; }
+  header { padding: 18px 16px 6px; display: flex; align-items: baseline; gap: 10px; }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: .02em; }
+  header h1 b { color: var(--gold); }
+  header span { color: var(--muted); font-size: 13px; }
+  main { padding: 8px 16px 48px; display: grid; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 12px; }
+  .card h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  button { appearance: none; border: 0; border-radius: 10px; padding: 13px 14px; font: 600 16px system-ui, Roboto, sans-serif; background: #2a303a; color: var(--text); }
+  button.primary { background: var(--accent); color: #fff; }
+  button.gold { background: var(--gold); color: #17191c; }
+  button:disabled { opacity: .45; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 0; min-width: 0; }
+  .seg { display: flex; background: #0e1014; border-radius: 10px; padding: 4px; gap: 4px; }
+  .seg button { flex: 1; padding: 10px 6px; background: transparent; font-size: 15px; }
+  .seg button.on { background: #2f3642; color: #fff; }
+  label.f { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input[type=number] { width: 100%; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: #0e1014; color: var(--text); font-size: 16px; }
+  input[type=range] { width: 100%; }
+  .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .imgs figure { margin: 0; background: #0e1014; border-radius: 10px; aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; }
+  .imgs img, .imgs canvas { max-width: 100%; max-height: 100%; }
+  .imgs figcaption { font-size: 12px; color: var(--muted); text-align: center; margin-top: 4px; }
+  .cores { display: grid; gap: 8px; }
+  .cor { display: flex; align-items: center; gap: 10px; background: #0e1014; border-radius: 10px; padding: 8px 10px; }
+  .cor input[type=color] { width: 40px; height: 34px; border: 0; padding: 0; background: none; }
+  .cor .n { flex: 1; font-size: 14px; }
+  .cor .tag { font-size: 12px; padding: 3px 8px; border-radius: 99px; background: #2a303a; color: var(--muted); }
+  .cor .tag.base { background: var(--gold); color: #17191c; font-weight: 700; }
+  .cor button { padding: 7px 10px; font-size: 13px; }
+  #view { width: 100%; aspect-ratio: 1; border-radius: 12px; background: radial-gradient(circle at 50% 40%, #2a2f38, #0e1014); touch-action: none; display: block; }
+  .msg { font-size: 14px; color: var(--muted); white-space: pre-wrap; }
+  .msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
+  .dim { font-variant-numeric: tabular-nums; font-size: 14px; color: var(--muted); }
+  .vazio { color: var(--muted); font-size: 14px; text-align: center; padding: 18px 8px; }
+  #inFoto { display: none; }
+</style>
+</head>
+<body>
+<header><h1>Forja <b>3D</b></h1><span>foto → medalha, chaveiro ou troféu</span></header>
+<main>
+  <section class="card">
+    <h2>1. Imagem</h2>
+    <input id="inFoto" type="file" accept="image/*">
+    <button id="bFoto" class="gold">Escolher foto ou logo</button>
+    <div class="imgs">
+      <figure><img id="imgOrig" alt=""><div id="semImg" class="vazio">Nenhuma imagem</div></figure>
+      <figure><canvas id="cvCores"></canvas></figure>
+    </div>
+    <div class="row dim"><span>Original</span><span>Cores separadas</span></div>
+  </section>
+
+  <section class="card">
+    <h2>2. Peça</h2>
+    <div class="seg" id="segProd">
+      <button data-v="medalha" class="on">Medalha</button>
+      <button data-v="chaveiro">Chaveiro</button>
+      <button data-v="trofeu">Troféu</button>
+    </div>
+    <div class="seg" id="segForma">
+      <button data-v="contorno" class="on">Formato do logo</button>
+      <button data-v="circulo">Redonda</button>
+    </div>
+    <div class="row">
+      <label class="f">Largura (mm)<input id="nLarg" type="number" min="20" max="250" step="1" value="70"></label>
+      <label class="f">Base (mm)<input id="nBase" type="number" min="1.5" max="10" step="0.5" value="3"></label>
+      <label class="f">Relevo (mm)<input id="nRelevo" type="number" min="0.2" max="3" step="0.2" value="0.6"></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3. Cores</h2>
+    <div class="seg" id="segCores">
+      <button data-v="2">2 cores</button>
+      <button data-v="3">3 cores</button>
+      <button data-v="4" class="on">4 cores</button>
+    </div>
+    <label class="f">Separação do fundo: <span id="tolTxt">60</span>
+      <input id="rTol" type="range" min="10" max="160" step="5" value="60"></label>
+    <div id="listaCores" class="cores"><div class="vazio">Escolha uma imagem para ver as cores.</div></div>
+    <div class="dim">A cor marcada como <b>base</b> é o fundo da peça (filamento 1). As outras ficam em relevo (filamentos 2, 3 e 4). Toque na amostra para trocar a cor.</div>
+  </section>
+
+  <section class="card">
+    <h2>4. Modelo 3D</h2>
+    <button id="bGerar" class="primary" disabled>Gerar peça 3D</button>
+    <canvas id="view"></canvas>
+    <div id="info" class="dim"></div>
+    <div class="row">
+      <button id="b3mf" disabled>Salvar 3MF (cores)</button>
+      <button id="bStl" disabled>Salvar STL (1 cor)</button>
+    </div>
+    <div id="msg" class="msg"></div>
+  </section>
+</main>
+<script src="lib/clipper.js"></script>
+<script src="lib/earcut.min.js"></script>
+<script src="lib/three.min.js"></script>
+<script src="motor.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
