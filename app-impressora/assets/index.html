@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Envia U1</title>
+<style>
+  :root {
+    --bg: #101317; --card: #1a1f26; --line: #2a313b; --text: #eef1f5; --muted: #9aa5b1;
+    --accent: #ff3b30; --accent2: #ffd400; --ok: #34c759; --warn: #ff9f0a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, Roboto, sans-serif; }
+  header { padding: 18px 16px 8px; display: flex; align-items: center; gap: 10px; }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.err { background: var(--accent); }
+  main { padding: 0 16px 40px; display: grid; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .card h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: #0d1014; color: var(--text); font-size: 16px; }
+  button { appearance: none; border: 0; border-radius: 10px; padding: 13px 14px; font-size: 16px; font-weight: 600; background: #2b333e; color: var(--text); }
+  button.primary { background: var(--accent); color: #fff; }
+  button.yellow { background: var(--accent2); color: #111; }
+  button:disabled { opacity: .45; }
+  .row { display: flex; gap: 10px; margin-top: 12px; }
+  .row > * { flex: 1; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .big { font-size: 22px; font-weight: 700; }
+  .bar { height: 10px; border-radius: 6px; background: #0d1014; overflow: hidden; margin-top: 10px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent2); transition: width .3s; }
+  .temps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .temps span { background: #0d1014; border-radius: 8px; padding: 6px 9px; font-size: 13px; }
+  .file { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .file:first-child { border-top: 0; }
+  .file .n { flex: 1; word-break: break-all; font-size: 14px; }
+  .file button { padding: 9px 12px; font-size: 14px; }
+  .check { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 15px; }
+  .check input { width: 22px; height: 22px; }
+  .msg { margin-top: 10px; font-size: 14px; white-space: pre-wrap; }
+  .msg.err { color: #ff8a80; } .msg.ok { color: #8be59c; } .msg.warn { color: #ffcc80; }
+  #found button { width: 100%; margin-top: 8px; }
+  details summary { color: var(--muted); font-size: 14px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div id="dot" class="dot"></div>
+  <h1>Envia U1</h1>
+  <button id="btnWeb" style="padding:8px 12px;font-size:14px">Fluidd</button>
+</header>
+<main>
+
+  <section class="card" id="cardCfg">
+    <h2>Impressora</h2>
+    <label for="ip">Endereço IP da Snapmaker U1</label>
+    <input id="ip" type="text" inputmode="decimal" placeholder="ex.: 192.168.0.25" autocomplete="off">
+    <details>
+      <summary>Avançado</summary>
+      <label for="key">Chave de API do Moonraker (opcional)</label>
+      <input id="key" type="text" placeholder="deixe vazio se não usar" autocomplete="off">
+    </details>
+    <div class="row">
+      <button id="btnSave" class="primary">Conectar</button>
+      <button id="btnScan">Procurar na rede</button>
+    </div>
+    <div id="found"></div>
+    <div id="cfgMsg" class="msg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Status</h2>
+    <div id="state" class="big">—</div>
+    <div id="job" class="muted"></div>
+    <div class="bar"><div id="prog"></div></div>
+    <div id="temps" class="temps"></div>
+    <div class="row">
+      <button id="btnPause">Pausar</button>
+      <button id="btnResume">Continuar</button>
+      <button id="btnCancel">Cancelar</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Enviar arquivo</h2>
+    <div class="muted">Escolha um arquivo <b>.gcode</b> já fatiado para a U1.</div>
+    <div class="row"><button id="btnPick" class="yellow">Escolher arquivo</button></div>
+    <div id="picked" class="msg"></div>
+    <label class="check"><input id="chkPrint" type="checkbox" checked> Imprimir logo depois de enviar</label>
+    <div class="row"><button id="btnSend" class="primary" disabled>Enviar para a impressora</button></div>
+    <div class="bar"><div id="upbar"></div></div>
+    <div id="upMsg" class="msg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Arquivos na impressora</h2>
+    <div id="files" class="muted">—</div>
+    <div class="row"><button id="btnFiles">Atualizar lista</button></div>
+  </section>
+
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const pend = {};
+let seq = 0, picked = null, conectado = false;
+
+function api(method, path) {
+  return new Promise(res => {
+    const id = 'r' + (++seq);
+    pend[id] = res;
+    Android.request(id, method, path);
+  });
+}
+window.onResp = (id, status, text) => {
+  const f = pend[id]; delete pend[id];
+  let json = null; try { json = JSON.parse(text); } catch (e) {}
+  f && f({ status, text, json });
+};
+
+function msg(el, text, cls) { el.textContent = text; el.className = 'msg ' + (cls || ''); }
+function explicar(r) {
+  if (r.status === 0) return 'Sem resposta da impressora. Confira o IP e se o celular está no mesmo Wi-Fi.\n(' + r.text + ')';
+  if (r.status === 401 || r.status === 403) return 'A impressora recusou a conexão (erro ' + r.status + '). Ela precisa liberar este celular: veja "Avançado" ou o README do app.';
+  const m = r.json && r.json.error && r.json.error.message;
+  return 'Erro ' + r.status + (m ? ': ' + m : '');
+}
+
+// ---------- configuração ----------
+const cfg = JSON.parse(Android.getConfig() || '{}');
+$('ip').value = cfg.ip || '';
+$('key').value = cfg.apikey || '';
+
+$('btnSave').onclick = async () => {
+  Android.setConfig($('ip').value, $('key').value);
+  msg($('cfgMsg'), 'Conectando…');
+  const r = await api('GET', '/server/info');
+  if (r.status === 200) {
+    const st = r.json.result.klippy_state;
+    msg($('cfgMsg'), 'Conectado! (Klipper: ' + st + ')', 'ok');
+    conectado = true; $('dot').className = 'dot ok';
+    atualizarStatus(); listarArquivos();
+  } else {
+    conectado = false; $('dot').className = 'dot err';
+    msg($('cfgMsg'), explicar(r), 'err');
+  }
+};
+
+$('btnScan').onclick = () => {
+  $('found').innerHTML = '';
+  $('btnScan').disabled = true;
+  msg($('cfgMsg'), 'Procurando impressoras na rede… (até 1 minuto)');
+  Android.scan();
+};
+window.onScanFound = (ip, st) => {
+  const b = document.createElement('button');
+  b.textContent = 'Usar ' + ip + (st === 200 ? '' : ' (pede autorização)');
+  b.onclick = () => { $('ip').value = ip; $('found').innerHTML = ''; $('btnSave').click(); };
+  $('found').appendChild(b);
+};
+window.onScanDone = (n, info) => {
+  $('btnScan').disabled = false;
+  if (n === 0) msg($('cfgMsg'), 'Nenhuma impressora encontrada em ' + info + '. Digite o IP que aparece na tela da U1 (Configurações → Wi-Fi).', 'warn');
+  else msg($('cfgMsg'), n + ' encontrada(s). Toque para usar.', 'ok');
+};
+
+$('btnWeb').onclick = () => Android.openUrl(Android.printerWebUrl());
+
+// ---------- status ----------
+const ESTADOS = { standby: 'Livre', printing: 'Imprimindo', paused: 'Pausada', complete: 'Concluída', cancelled: 'Cancelada', error: 'Erro' };
+async function atualizarStatus() {
+  if (!$('ip').value) return;
+  const objs = 'print_stats&display_status&virtual_sdcard&heater_bed&extruder&extruder1&extruder2&extruder3&webhooks';
+  const r = await api('GET', '/printer/objects/query?' + objs);
+  if (r.status !== 200 || !r.json) {
+    $('dot').className = 'dot err'; $('state').textContent = 'Sem conexão'; return;
+  }
+  $('dot').className = 'dot ok';
+  const s = r.json.result.status;
+  const ps = s.print_stats || {};
+  const wh = s.webhooks || {};
+  let estado = ESTADOS[ps.state] || ps.state || '—';
+  if (wh.state && wh.state !== 'ready') estado = 'Klipper: ' + wh.state;
+  $('state').textContent = estado;
+  const pct = Math.round(100 * ((s.display_status && s.display_status.progress) || (s.virtual_sdcard && s.virtual_sdcard.progress) || 0));
+  $('prog').style.width = pct + '%';
+  let job = '';
+  if (ps.filename) {
+    job = ps.filename + ' — ' + pct + '%';
+    if (ps.print_duration > 0 && pct > 0 && ps.state === 'printing') {
+      const resta = ps.print_duration * (100 - pct) / pct;
+      job += ' · faltam ~' + Math.round(resta / 60) + ' min';
+    }
+  }
+  $('job').textContent = job;
+  const t = [];
+  ['extruder', 'extruder1', 'extruder2', 'extruder3'].forEach((k, i) => {
+    if (s[k]) t.push('Cabeça ' + (i + 1) + ': ' + Math.round(s[k].temperature) + '°/' + Math.round(s[k].target) + '°');
+  });
+  if (s.heater_bed) t.push('Mesa: ' + Math.round(s.heater_bed.temperature) + '°/' + Math.round(s.heater_bed.target) + '°');
+  $('temps').innerHTML = t.map(x => '<span>' + x + '</span>').join('');
+  $('btnPause').disabled = ps.state !== 'printing';
+  $('btnResume').disabled = ps.state !== 'paused';
+  $('btnCancel').disabled = !(ps.state === 'printing' || ps.state === 'paused');
+}
+setInterval(() => { if (conectado) atualizarStatus(); }, 4000);
+
+async function comando(path, pergunta) {
+  if (pergunta && !confirm(pergunta)) return;
+  const r = await api('POST', path);
+  if (r.status !== 200) alert(explicar(r));
+  setTimeout(atualizarStatus, 800);
+}
+$('btnPause').onclick = () => comando('/printer/print/pause');
+$('btnResume').onclick = () => comando('/printer/print/resume');
+$('btnCancel').onclick = () => comando('/printer/print/cancel', 'Cancelar a impressão atual?');
+
+// ---------- enviar ----------
+$('btnPick').onclick = () => Android.pickFile();
+window.onFilePicked = (nome, tamanho) => {
+  picked = nome;
+  const mb = tamanho > 0 ? ' (' + (tamanho / 1048576).toFixed(1) + ' MB)' : '';
+  const lower = nome.toLowerCase();
+  if (lower.endsWith('.3mf') || lower.endsWith('.stl')) {
+    msg($('picked'), nome + mb + '\nEste arquivo ainda não foi fatiado. A impressora só aceita .gcode — fatie antes no Snapmaker Orca.', 'err');
+    $('btnSend').disabled = true;
+    return;
+  }
+  const aviso = (lower.endsWith('.gcode') || lower.endsWith('.gco') || lower.endsWith('.g')) ? '' : '\nAtenção: o nome não termina em .gcode.';
+  msg($('picked'), 'Arquivo: ' + nome + mb + aviso, aviso ? 'warn' : 'ok');
+  $('btnSend').disabled = false;
+};
+$('btnSend').onclick = () => {
+  if (!picked) return;
+  Android.setConfig($('ip').value, $('key').value);
+  let nome = picked.replace(/[\\/:*?"<>|]/g, '_');
+  if (!/\.(gcode|gco|g)$/i.test(nome)) nome += '.gcode';
+  $('btnSend').disabled = true;
+  $('upbar').style.width = '0';
+  msg($('upMsg'), 'Enviando…');
+  Android.upload(nome, $('chkPrint').checked);
+};
+window.onUploadProgress = p => { $('upbar').style.width = p + '%'; msg($('upMsg'), 'Enviando… ' + p + '%'); };
+window.onUploadDone = (status, text) => {
+  $('btnSend').disabled = false;
+  if (status === 200 || status === 201) {
+    $('upbar').style.width = '100%';
+    let started = false;
+    try { started = JSON.parse(text).print_started; } catch (e) {}
+    msg($('upMsg'), $('chkPrint').checked
+      ? (started ? 'Enviado! A impressão começou. 🎉' : 'Enviado! Mas a impressora não iniciou sozinha — confira a tela da U1.')
+      : 'Enviado! O arquivo está na impressora.', started || !$('chkPrint').checked ? 'ok' : 'warn');
+    conectado = true; atualizarStatus(); listarArquivos();
+  } else {
+    let json = null; try { json = JSON.parse(text); } catch (e) {}
+    msg($('upMsg'), explicar({ status, text, json }), 'err');
+  }
+};
+
+// ---------- arquivos ----------
+async function listarArquivos() {
+  const r = await api('GET', '/server/files/list?root=gcodes');
+  const box = $('files');
+  if (r.status !== 200) { box.textContent = explicar(r); return; }
+  const lista = r.json.result.sort((a, b) => b.modified - a.modified).slice(0, 15);
+  if (!lista.length) { box.textContent = 'Nenhum arquivo.'; return; }
+  box.innerHTML = '';
+  lista.forEach(f => {
+    const d = document.createElement('div'); d.className = 'file';
+    const n = document.createElement('div'); n.className = 'n'; n.textContent = f.path;
+    const b = document.createElement('button'); b.textContent = 'Imprimir';
+    b.onclick = () => comando('/printer/print/start?filename=' + encodeURIComponent(f.path), 'Imprimir "' + f.path + '" agora?');
+    d.append(n, b); box.appendChild(d);
+  });
+}
+$('btnFiles').onclick = listarArquivos;
+
+if (cfg.ip) $('btnSave').click();
+</script>
+</body>
+</html>

@@ -134,11 +134,23 @@ objs = []
 for i, nome in enumerate(nomes, start=1):
     m = malhas[nome]
     vs = "".join(f'<vertex x="{x:.4f}" y="{y:.4f}" z="{z:.4f}"/>' for x, y, z in m.vertices)
-    ts = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in m.faces)
+    # cor em cada triangulo (lida por visualizadores 3MF em geral)
+    ts = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}" pid="100" p1="{i-1}"/>' for a, b, c in m.faces)
     objs.append(f'<object id="{i}" name="{nome}" type="model" pid="100" pindex="{i-1}">'
                 f'<mesh><vertices>{vs}</vertices><triangles>{ts}</triangles></mesh></object>')
 comps = "".join(f'<component objectid="{i}"/>' for i in range(1, len(nomes) + 1))
 pid = len(nomes) + 1
+
+# Snapmaker Orca / OrcaSlicer / Bambu Studio leem o filamento de cada parte deste arquivo
+FILAMENTO = {"preto_base": 1, "vermelho": 2, "amarelo": 3, "branco": 4}
+partes_cfg = "".join(
+    f'  <part id="{i}" subtype="normal_part">\n'
+    f'    <metadata key="name" value="{nome}"/>\n'
+    f'    <metadata key="extruder" value="{FILAMENTO[nome]}"/>\n'
+    f'  </part>\n' for i, nome in enumerate(nomes, start=1))
+model_settings = (f'<?xml version="1.0" encoding="UTF-8"?>\n<config>\n <object id="{pid}">\n'
+                  f'  <metadata key="name" value="Medalha Liga de Boxe"/>\n'
+                  f'  <metadata key="extruder" value="1"/>\n{partes_cfg} </object>\n</config>\n')
 cor_xml = "".join(f'<base name="{n}" displaycolor="{cores_hex[n]}"/>' for n in nomes)
 modelo = f'''<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
@@ -153,6 +165,16 @@ with zipfile.ZipFile(AQUI / "medalha_liga_boxe.3mf", "w", zipfile.ZIP_DEFLATED) 
     z.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
     z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
     z.writestr("3D/3dmodel.model", modelo)
+    z.writestr("Metadata/model_settings.config", model_settings)
+
+# ---------------- GLB colorido (visualizadores 3D de celular) ----------------
+cena = trimesh.Scene()
+for nome, m in malhas.items():
+    c = m.copy()
+    rgba = [int(cores_hex[nome][k:k + 2], 16) for k in (1, 3, 5)] + [255]
+    c.visual = trimesh.visual.ColorVisuals(c, face_colors=np.tile(rgba, (len(c.faces), 1)))
+    cena.add_geometry(c, node_name=nome, geom_name=nome)
+cena.export(AQUI / "medalha_colorida.glb")
 
 # ---------------- preview ----------------
 import matplotlib
