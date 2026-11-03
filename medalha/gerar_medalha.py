@@ -127,45 +127,57 @@ for m in malhas.values():
 for nome, m in malhas.items():
     m.export(AQUI / "stl" / f"medalha_{nome}.stl")
 
-# ---------------- 3MF: 1 objeto com 4 partes ----------------
+# ---------------- 3MF: 1 objeto com 4 partes (formato PrusaSlicer) ----------------
+# Formato mais aceito para multicolor: PrusaSlicer le nativamente, e OrcaSlicer,
+# Snapmaker Orca e Bambu Studio reconhecem "Application=PrusaSlicer" e criam
+# sozinhos os filamentos que faltam, cada parte no seu filamento.
 cores_hex = {"preto_base": "#111111FF", "vermelho": "#E3001BFF", "amarelo": "#FFD400FF", "branco": "#FFFFFFFF"}
-nomes = list(malhas)
-objs = []
-for i, nome in enumerate(nomes, start=1):
-    m = malhas[nome]
-    vs = "".join(f'<vertex x="{x:.4f}" y="{y:.4f}" z="{z:.4f}"/>' for x, y, z in m.vertices)
-    # cor em cada triangulo (lida por visualizadores 3MF em geral)
-    ts = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}" pid="100" p1="{i-1}"/>' for a, b, c in m.faces)
-    objs.append(f'<object id="{i}" name="{nome}" type="model" pid="100" pindex="{i-1}">'
-                f'<mesh><vertices>{vs}</vertices><triangles>{ts}</triangles></mesh></object>')
-comps = "".join(f'<component objectid="{i}"/>' for i in range(1, len(nomes) + 1))
-pid = len(nomes) + 1
-
-# Snapmaker Orca / OrcaSlicer / Bambu Studio leem o filamento de cada parte deste arquivo
 FILAMENTO = {"preto_base": 1, "vermelho": 2, "amarelo": 3, "branco": 4}
-partes_cfg = "".join(
-    f'  <part id="{i}" subtype="normal_part">\n'
-    f'    <metadata key="name" value="{nome}"/>\n'
-    f'    <metadata key="extruder" value="{FILAMENTO[nome]}"/>\n'
-    f'  </part>\n' for i, nome in enumerate(nomes, start=1))
-model_settings = (f'<?xml version="1.0" encoding="UTF-8"?>\n<config>\n <object id="{pid}">\n'
-                  f'  <metadata key="name" value="Medalha Liga de Boxe"/>\n'
-                  f'  <metadata key="extruder" value="1"/>\n{partes_cfg} </object>\n</config>\n')
+nomes = sorted(malhas, key=FILAMENTO.get)
+
+# uma malha unica; cada cor e uma faixa de triangulos (volume)
+vs_xml, ts_xml, faixas = [], [], []
+base_v, base_t = 0, 0
+for i, nome in enumerate(nomes):
+    m = malhas[nome]
+    vs_xml += [f'<vertex x="{x:.4f}" y="{y:.4f}" z="{z:.4f}"/>' for x, y, z in m.vertices]
+    ts_xml += [f'<triangle v1="{a + base_v}" v2="{b + base_v}" v3="{c + base_v}" pid="1" p1="{i}"/>' for a, b, c in m.faces]
+    faixas.append((nome, base_t, base_t + len(m.faces) - 1))
+    base_v += len(m.vertices)
+    base_t += len(m.faces)
+
 cor_xml = "".join(f'<base name="{n}" displaycolor="{cores_hex[n]}"/>' for n in nomes)
 modelo = f'''<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06">
+<metadata name="slic3rpe:Version3mf">1</metadata>
 <metadata name="Title">Medalha Liga de Boxe Camacari</metadata>
-<resources><basematerials id="100">{cor_xml}</basematerials>
-{"".join(objs)}
-<object id="{pid}" name="Medalha Liga de Boxe" type="model"><components>{comps}</components></object>
+<metadata name="Application">PrusaSlicer-2.8.1</metadata>
+<resources>
+<basematerials id="1">{cor_xml}</basematerials>
+<object id="2" name="Medalha Liga de Boxe" type="model" pid="1" pindex="0">
+<mesh><vertices>{"".join(vs_xml)}</vertices><triangles>{"".join(ts_xml)}</triangles></mesh>
+</object>
 </resources>
-<build><item objectid="{pid}" transform="1 0 0 0 1 0 0 0 1 128 128 0"/></build>
+<build><item objectid="2" transform="1 0 0 0 1 0 0 0 1 128 128 0" printable="1"/></build>
 </model>'''
+
+vol_xml = "".join(
+    f'  <volume firstid="{a}" lastid="{b}">\n'
+    f'   <metadata type="volume" key="name" value="{nome}"/>\n'
+    f'   <metadata type="volume" key="volume_type" value="ModelPart"/>\n'
+    f'   <metadata type="volume" key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n'
+    f'   <metadata type="volume" key="extruder" value="{FILAMENTO[nome]}"/>\n'
+    f'   <mesh edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>\n'
+    f'  </volume>\n' for nome, a, b in faixas)
+model_config = ('<?xml version="1.0" encoding="UTF-8"?>\n<config>\n <object id="2" instances_count="1">\n'
+                '  <metadata type="object" key="name" value="Medalha Liga de Boxe"/>\n'
+                '  <metadata type="object" key="extruder" value="1"/>\n' + vol_xml + ' </object>\n</config>\n')
+
 with zipfile.ZipFile(AQUI / "medalha_liga_boxe.3mf", "w", zipfile.ZIP_DEFLATED) as z:
-    z.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
-    z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
+    z.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="config" ContentType="text/plain"/></Types>')
+    z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
     z.writestr("3D/3dmodel.model", modelo)
-    z.writestr("Metadata/model_settings.config", model_settings)
+    z.writestr("Metadata/Slic3r_PE_model.config", model_config)
 
 # ---------------- GLB colorido (visualizadores 3D de celular) ----------------
 cena = trimesh.Scene()

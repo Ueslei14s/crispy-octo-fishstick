@@ -12,12 +12,20 @@ Medalha multicolorida para a **Snapmaker U1** (4 cores), feita a partir do `logo
 ## Arquivos
 | Arquivo | Uso |
 |---|---|
-| `medalha_liga_boxe.3mf` | Um objeto com 4 partes: preto_base, vermelho, amarelo e branco |
-| `medalha_colorida.glb` | Versão colorida para visualizar no celular (apps de visualização 3D) |
+| `medalha_liga_boxe.3mf` | Um objeto com 4 partes (preto_base, vermelho, amarelo, branco), no formato multicolor do PrusaSlicer |
+| `medalha_colorida.glb` | Só para **visualizar** no celular. Fatiadores não abrem esse formato |
 | `stl/medalha_*.stl` | Uma STL por cor (alternativa ao 3MF) |
 | `gerar_medalha.py` | Script que gera tudo; os parâmetros (tamanho, espessura, fenda) ficam no topo |
 
-## Como fatiar (Snapmaker Orca)
-1. Abra o `medalha_liga_boxe.3mf` e selecione a impressora **Snapmaker U1**.
-2. Cada parte já vem ligada a um filamento: **1 = preto, 2 = vermelho, 3 = amarelo, 4 = branco**. Configure as 4 cores nos filamentos do Orca (ou troque o filamento de cada parte na lista de objetos).
-3. Use camada de 0,2 mm, ou de 0,12–0,16 mm para detalhes mais nítidos, e imprima deitada, sem suportes.
+## Como fatiar
+**Snapmaker Orca, OrcaSlicer, Bambu Studio e PrusaSlicer**
+1. Abra o `medalha_liga_boxe.3mf` com a impressora **Snapmaker U1** selecionada.
+2. O fatiador cria os filamentos 1 a 4 e coloca cada parte no seu: **1 preto, 2 vermelho, 3 amarelo, 4 branco**.
+3. Acerte as cores dos 4 filamentos na barra lateral, já que as cores criadas automaticamente podem ser outras.
+
+**Qualquer fatiador (alternativa com STL)**
+1. Selecione os 4 arquivos da pasta `stl/` de uma vez e abra.
+2. Quando o fatiador perguntar se é **um objeto com várias partes**, responda **Sim**.
+3. Escolha o filamento de cada parte: preto_base, vermelho, amarelo e branco.
+
+Use camada de 0,2 mm, ou de 0,12–0,16 mm para detalhes mais nítidos, e imprima deitada, sem suportes.
