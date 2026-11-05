@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1720">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Olhinho</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+
+  <!-- INÍCIO -->
+  <section id="s-home">
+    <header class="brand">
+      <img src="icons/icon-192.png" alt="" width="56" height="56">
+      <div><h1>Olhinho</h1><p>Babá eletrônica pelo celular</p></div>
+    </header>
+
+    <button class="card" id="btn-role-camera">
+      <span class="emoji">📷</span>
+      <span><strong>Este celular é a CÂMERA</strong><small>Fica no quarto, apontado para o seu filho</small></span>
+    </button>
+
+    <div class="card static">
+      <span class="emoji">📱</span>
+      <div class="grow">
+        <strong>Este celular é o MONITOR</strong>
+        <small>Fica com você. Digite o código que aparece na câmera.</small>
+        <input id="in-code" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="24">
+        <button class="primary" id="btn-role-monitor">Conectar</button>
+      </div>
+    </div>
+
+    <footer>
+      <button class="link" id="btn-settings">Configurações avançadas</button>
+      <p class="fine">Vídeo e áudio vão direto de um celular para o outro, criptografados. Nada fica gravado nem passa por servidor.</p>
+    </footer>
+  </section>
+
+  <!-- CÂMERA -->
+  <section id="s-camera" hidden>
+    <div class="topbar">
+      <button class="icon" id="cam-back" aria-label="Parar">✕</button>
+      <h2>Câmera</h2>
+      <span class="pill" id="cam-signal">…</span>
+    </div>
+
+    <div class="preview-wrap"><video id="cam-preview" autoplay muted playsinline></video><span class="badge" id="cam-viewers">Ninguém assistindo</span></div>
+
+    <div class="codebox">
+      <small>Código para o monitor</small>
+      <div class="code" id="cam-code">----</div>
+      <div class="row">
+        <button id="cam-share">Compartilhar</button>
+        <button id="cam-copy">Copiar</button>
+        <button id="cam-newcode">Novo código</button>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div><small>Som no quarto</small><div class="meter"><i id="cam-meter"></i></div></div>
+      <div><small id="cam-info">—</small></div>
+    </div>
+
+    <div class="row">
+      <button id="cam-flip">🔄 Trocar câmera</button>
+      <button id="cam-lock">🔒 Bloquear novos acessos</button>
+      <button class="primary" id="cam-dim">🌙 Escurecer tela</button>
+    </div>
+    <p class="fine">Deixe o celular <b>no carregador</b>, com o app aberto, e fora do alcance da criança. Prenda ou esconda o cabo.</p>
+  </section>
+
+  <!-- MONITOR -->
+  <section id="s-monitor" hidden>
+    <div class="topbar">
+      <button class="icon" id="mon-back" aria-label="Sair">✕</button>
+      <h2>Monitor</h2>
+      <span class="pill" id="mon-state">…</span>
+    </div>
+
+    <div class="video-wrap" id="mon-wrap">
+      <video id="mon-video" autoplay playsinline></video>
+      <button class="tap" id="mon-tap" hidden>Toque para ver e ouvir</button>
+      <span class="badge" id="mon-info"></span>
+    </div>
+
+    <div class="stats">
+      <div><small>Som no quarto</small><div class="meter"><i id="mon-meter"></i><b id="mon-thresh"></b></div></div>
+      <div class="sens"><small>Sensibilidade do alerta</small><input type="range" id="mon-sens" min="0" max="100" value="50"></div>
+    </div>
+
+    <button class="talk" id="mon-talk">🎙️ Segure para falar</button>
+
+    <div class="row">
+      <button id="mon-mute">🔊 Som</button>
+      <button id="mon-night">🌗 Visão noturna</button>
+      <button id="mon-flip">🔄 Trocar câmera</button>
+      <button id="mon-full">⛶ Tela cheia</button>
+      <button id="mon-dim">🌙 Escurecer</button>
+    </div>
+    <p class="fine">Mantenha o app aberto. Se você sair dele ou o celular bloquear, os alertas param.</p>
+  </section>
+
+</main>
+
+<div id="dim" hidden><p>Toque duas vezes para acender</p></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="dlg-settings">
+  <form method="dialog">
+    <h3>Configurações avançadas</h3>
+    <p class="fine">Só mude se a conexão pela internet móvel (4G/5G) não funcionar. Isso costuma exigir um servidor TURN.</p>
+    <label>Servidor de sinalização (opcional)
+      <input id="set-signal" type="text" placeholder="vazio = servidor público do PeerJS">
+    </label>
+    <label>Servidor TURN (opcional)
+      <input id="set-turn" type="text" placeholder="turn:servidor:3478  ou  turns:servidor:443">
+    </label>
+    <label>Usuário TURN<input id="set-turn-user" type="text" autocomplete="off"></label>
+    <label>Senha TURN<input id="set-turn-pass" type="password" autocomplete="off"></label>
+    <div class="row">
+      <button value="cancel">Cancelar</button>
+      <button class="primary" id="set-save" value="ok">Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="lib/peerjs.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
