@@ -104,6 +104,12 @@ public class MainActivity extends Activity {
                 int n;
                 while ((n = in.read(b)) > 0) bo.write(b, 0, n);
                 String tipo = getContentResolver().getType(uri);
+                String nome0 = nomeDe(uri);
+                if (nome0.toLowerCase().endsWith(".3mf") || nome0.toLowerCase().endsWith(".stl") || (tipo != null && tipo.startsWith("model/"))) {
+                    String b64 = Base64.encodeToString(bo.toByteArray(), Base64.NO_WRAP);
+                    runOnUiThread(() -> web.evaluateJavascript("abrirModeloBase64(" + JSONObject.quote(b64) + "," + JSONObject.quote(nome0) + ")", null));
+                    return;
+                }
                 if (tipo == null) tipo = "image/png";
                 String url = "data:" + tipo + ";base64," + Base64.encodeToString(bo.toByteArray(), Base64.NO_WRAP);
                 String nome = nomeDe(uri);
@@ -179,6 +185,31 @@ public class MainActivity extends Activity {
     }
 
     private class Ponte {
+        /** Requisição ao Moonraker da U1. Resposta em onResp2(id, status, texto). */
+        @JavascriptInterface
+        public void requisicao(String id, String metodo, String ip, String caminho) {
+            new Thread(() -> {
+                int status = 0;
+                String texto;
+                try {
+                    String base = ip.trim();
+                    if (!base.startsWith("http")) base = "http://" + base;
+                    if (!base.substring(7).contains(":")) base = base + ":7125";
+                    HttpURLConnection c = (HttpURLConnection) new URL(base + caminho).openConnection();
+                    c.setRequestMethod(metodo);
+                    c.setConnectTimeout(6000);
+                    c.setReadTimeout(30000);
+                    if ("POST".equals(metodo)) { c.setDoOutput(true); c.setFixedLengthStreamingMode(0); c.getOutputStream().close(); }
+                    status = c.getResponseCode();
+                    texto = lerResposta(c);
+                    c.disconnect();
+                } catch (Exception e) {
+                    texto = e.getClass().getSimpleName() + ": " + e.getMessage();
+                }
+                js("onResp2(" + JSONObject.quote(id) + "," + status + "," + JSONObject.quote(texto) + ")");
+            }).start();
+        }
+
         /** Envia o G-code para o Moonraker da U1 (porta 7125) e, se pedido, inicia a impressão. */
         @JavascriptInterface
         public void enviarGcode(String ip, String nome, String base64, boolean imprimir) {

@@ -138,24 +138,11 @@ const Fatiador = (() => {
   }
 
   // ------------------------------------------------------------ fatiar
+  // peças do Forja 3D (formas planas empilhadas)
   function fatiar(peca, objetos, opt) {
-    const P = Object.assign({
-      h: 0.2, h0: 0.25, paredes: 2, topo: 5, fundo: 3, infill: 0.15,
-      ferro: 'top', ferroFluxo: 0.10, ferroEsp: 0.13, ferroVel: 30,
-      temps: [220, 220, 220, 220], mesa: 65, tipos: ['PLA', 'PLA', 'PLA', 'PLA'], cores: ['#000000', '#FF0000', '#FFFF00', '#FFFFFF'],
-      vitrificacao: 45,
-    }, opt);
-    const V = { externa: 80, interna: 120, esparso: 270, solido: 250, topo: 80, prim: 50, primInfill: 105, viagem: 500, torre: 90 };
-    const W = { externa: 0.42, interna: 0.45, esparso: 0.45, solido: 0.42, topo: 0.42, prim: 0.5, torre: 0.5 };
-    const VOLMAX = 12;           // mm³/s (filament_max_volumetric_speed)
-    const RET = 1.5, RET_TROCA = 10, HOP = 0.4;
-
     const sol = solidos(peca, objetos);
-    const camadas = planejarCamadas(sol, P.h, P.h0);
-    const N = camadas.length;
+    const camadas = planejarCamadas(sol, opt.h || 0.2, opt.h0 || 0.25);
     const nObj = Math.max(...sol.map(s => s.obj)) + 1;
-
-    // regiões por camada, objeto e filamento (já na posição da mesa)
     const reg = camadas.map(c => {
       const zm = c.z - c.h / 2;
       const porObj = [];
@@ -172,6 +159,25 @@ const Fatiador = (() => {
       }
       return porObj;
     });
+    return nucleo(camadas, reg, objetos.map(o => o.nome), opt, {});
+  }
+
+  // núcleo: recebe as regiões de cada camada (por objeto e filamento) e gera o G-code
+  // extras.suporte[l] = área de suporte da camada l (paths na mesa)
+  function nucleo(camadas, reg, nomes, opt, extras) {
+    const P = Object.assign({
+      h: 0.2, h0: 0.25, paredes: 2, topo: 5, fundo: 3, infill: 0.15,
+      ferro: 'top', ferroFluxo: 0.10, ferroEsp: 0.13, ferroVel: 30,
+      temps: [220, 220, 220, 220], mesa: 65, vitrificacao: 45,
+      mapa: [0, 1, 2, 3, 4, 5, 6, 7], brim: 0, velFator: 1, filSuporte: 0,
+    }, opt);
+    const fv = P.velFator;
+    const V = { externa: 80 * fv, interna: 120 * fv, esparso: 270 * fv, solido: 250 * fv, topo: 80 * fv, prim: 50, primInfill: 105, viagem: 500, torre: 90, suporte: 150 * fv, ponte: 50 };
+    const W = { externa: 0.42, interna: 0.45, esparso: 0.45, solido: 0.42, topo: 0.42, prim: 0.5, torre: 0.5, suporte: 0.42 };
+    const VOLMAX = 12;           // mm³/s (filament_max_volumetric_speed)
+    const RET = 1.5, RET_TROCA = 10, HOP = 0.4;
+    const N = camadas.length, nObj = reg[0].length;
+    const ferr = f => (P.mapa[f - 1] !== undefined ? P.mapa[f - 1] : f - 1);
 
     const T = Math.max(P.topo, Math.ceil(1.0 / P.h)), B = Math.max(P.fundo, Math.ceil(0.8 / P.h));
     const ocupado = (l, o) => (l < 0 || l >= N ? [] : reg[l][o].tudo);
@@ -239,6 +245,29 @@ const Fatiador = (() => {
             for (const s of ordenar(hachura(limpa(off(alvo, -W.topo / 2), 0.05), ang + 90, P.ferroEsp), 1.6 * P.ferroEsp))
               lista.push({ tipo: 'Ironing', pts: s, w: W.topo, v: P.ferroVel, fluxo: P.ferroFluxo, esp: P.ferroEsp, obj: o });
           }
+        }
+      }
+      // suporte: grade espaçada + 2 camadas de interface mais densas sob a peça
+      const sup = extras.suporte && extras.suporte[l];
+      if (sup && sup.length) {
+        const fs = P.filSuporte || Math.min(...Object.keys(porFil).map(Number).concat([1]));
+        const lista = porFil[fs] = porFil[fs] || [];
+        const prox = (extras.suporte[l + 1] || []), prox2 = (extras.suporte[l + 2] || []);
+        const interface_ = limpa(dif(sup, inter(prox, prox2)), 0.2);
+        const corpo = limpa(dif(sup, interface_), 0.2);
+        for (const r of limpa(off(sup, -W.suporte / 2), 0.3)) lista.push({ tipo: 'Support', pts: laco(r), w: W.suporte, v: primeira ? V.prim : V.suporte, obj: -1 });
+        const add = (segs, tipo, ponte) => { for (const sg of ordenar(segs, ponte)) lista.push({ tipo, pts: sg, w: W.suporte, v: primeira ? V.prim : V.suporte, obj: -1 }); };
+        add(hachura(off(corpo, -W.suporte), l % 2 ? 0 : 90, 2.5), 'Support', 3.5);
+        add(hachura(off(interface_, -W.suporte), l % 2 ? 0 : 90, 0.8), 'Support interface', 1.2);
+      }
+      // brim na primeira camada
+      if (primeira && P.brim > 0) {
+        const fb = Math.min(...Object.keys(porFil).map(Number));
+        const lista = porFil[fb];
+        for (let o = 0; o < nObj; o++) {
+          const base = reg[0][o].tudo; if (!base.length) continue;
+          for (let k = Math.round(P.brim / W.prim); k >= 1; k--)
+            for (const r of limpa(off(base, W.prim * (k - 0.5)), 0.05)) lista.push({ tipo: 'Brim', pts: laco(r), w: W.prim, v: V.prim, obj: -1 });
         }
       }
       return porFil;
@@ -334,11 +363,12 @@ const Fatiador = (() => {
     // objetos para exclusão (Klipper)
     const nomesObj = [], defs = [];
     for (let o = 0; o < nObj; o++) {
-      const base = sol.filter(s => s.obj === o && s.z0 === 0).flatMap(s => mover(s.paths, MESA.cx + s.desloc[0], MESA.cy + s.desloc[1]));
-      const pts = base.flat().map(q => [q.X / SC, q.Y / SC]);
+      const pts = [];
+      for (let l = 0; l < N; l += Math.max(1, Math.floor(N / 12))) for (const r of reg[l][o].tudo) for (const q of r) pts.push([q.X / SC, q.Y / SC]);
+      if (pts.length < 3) { nomesObj.push('vazio_' + o); continue; }
       const casca = envoltoria(pts);
       const cx = casca.reduce((a, p) => a + p[0], 0) / casca.length, cy = casca.reduce((a, p) => a + p[1], 0) / casca.length;
-      const nome = (objetos[o].nome || 'peca').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w]+/g, '_') + `_id_${o}_copy_0`;
+      const nome = String(nomes[o] || 'peca').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '_') + `_id_${o}_copy_0`;
       nomesObj.push(nome);
       defs.push(`EXCLUDE_OBJECT_DEFINE NAME=${nome} CENTER=${f3(cx)},${f3(cy)} POLYGON=[${casca.map(p => `[${p[0].toFixed(1)},${p[1].toFixed(1)}]`).join(',')}]`);
     }
@@ -346,7 +376,7 @@ const Fatiador = (() => {
     // corpo
     const corpo = [];
     const progresso = [];   // [índice em g, tempo acumulado]
-    cab = 0;   // o início (PRINT_START) deixa a cabeça T0 pronta
+    cab = ferr(ordem[0][0]);   // o início (PRINT_START) deixa essa cabeça pronta
     g.push(`G1 Z${f3(camadas[0].z)} F30000`, 'M106 S0', 'M106 P2 S0');
     camadas.forEach((c, l) => {
       prev.push([]);
@@ -359,9 +389,10 @@ const Fatiador = (() => {
       g.push(`G1 Z${f3(c.z)} F30000`); z = c.z;
       const fs = ordem[l];
       fs.forEach((f, i) => {
-        const tc = f - 1;
+        const tc = ferr(f);
         if (tc !== cab) trocar(tc, l, c.z);
         if (multicor) torre(l, c.z, c.h, i, fs.length, l === 0 || fs.length > 1 || (i === 0 && l > 0 && ordem[l - 1].slice(-1)[0] !== f));
+        for (const t of (plano[l][f] || []).filter(t => t.obj === -1 && t.tipo === 'Brim')) extrudar(t, c.z, c.h, l);
         for (let o = 0; o < nObj; o++) {
           const ts = (plano[l][f] || []).filter(t => t.obj === o);
           if (!ts.length) continue;
@@ -370,6 +401,8 @@ const Fatiador = (() => {
           recolher();
           g.push(`EXCLUDE_OBJECT_END NAME=${nomesObj[o]}`);
         }
+        for (const t of (plano[l][f] || []).filter(t => t.obj === -1 && t.tipo !== 'Brim')) extrudar(t, c.z, c.h, l);
+        recolher();
       });
       if (fs.length === 0 && multicor) torre(l, c.z, c.h, 0, 1, false);
       if (l === 0) { tempo1 = tempo; g.push('M106 S255', 'M106 P2 S178'); }
@@ -389,7 +422,7 @@ const Fatiador = (() => {
     const mm = usoE, cm3 = mm.map(v => v * AREA_FIL / 1000), gr = cm3.map(v => v * 1.24);
     return {
       camadas, prev, linhas: g, defs, tempoTotal: total, tempoPrimeira: tempo1 * fatorAcel, trocas,
-      uso: { mm, cm3, gr }, multicor, alturaTorre, P,
+      uso: { mm, cm3, gr }, multicor, alturaTorre, P, inicial: ferr(ordem[0][0]),
     };
   }
 
@@ -426,7 +459,10 @@ const Fatiador = (() => {
     const purif = P.vitrificacao <= 50 ? '; 强冷\nSET_PURIFIER_MODE MODE=1 DESIRE_TEMP=42 ALARM_TEMP=48 FAN_SPEED=0.6 DELAY_OFF=0'
       : P.vitrificacao <= 70 ? 'SET_PURIFIER_MODE MODE=1 DESIRE_TEMP=45 ALARM_TEMP=51 FAN_SPEED=0.6 DELAY_OFF=0 ; weak cooling'
         : 'SET_PURIFIER_MODE MODE=3 DESIRE_TEMP=45 FAN_SPEED=0.6 DELAY_OFF=600 ; keep warm';
-    const inicio = MODELO_U1.inicio.replace('{L}', N).replace(/\{BED\}/g, P.mesa).replace(/\{T0\}/g, P.temps[0]).replace('{PURIFICADOR}', purif);
+    const ini = r.inicial || 0;
+    const inicio = MODELO_U1.inicio.replace('{L}', N).replace(/\{BED\}/g, P.mesa).replace(/\{T0\}/g, P.temps[ini]).replace('{PURIFICADOR}', purif)
+      .split('\n').map(l => /^M104 S0 T\d A0$/.test(l) || /^SM_PRINT_(AUTO_FEED|FLOW_CALIBRATE|EXTRUDER_PREHEAT)/.test(l) ? l
+        : l.replace(/\bT0\b/g, 'T' + ini).replace('INDEX=0', 'INDEX=' + ini)).join('\n');
     const exec = ['; EXECUTABLE_BLOCK_START', ...r.defs, `M73 P0 R${Math.round(r.tempoTotal / 60)}`, inicio, ...r.linhas, '; EXECUTABLE_BLOCK_END', ''];
     const fmt = a => a.map(v => v.toFixed(2)).join(', ');
     const tot = r.uso.gr.reduce((a, b) => a + b, 0);
@@ -441,5 +477,5 @@ const Fatiador = (() => {
     return [...cab, ...mini, ...larg, ...exec, ...rod, ...cfg, ''].join('\n');
   }
 
-  return { fatiar, montarArquivo, hms };
+  return { fatiar, nucleo, montarArquivo, hms, uni, dif, inter, off, limpa, mover, SC, MESA };
 })();

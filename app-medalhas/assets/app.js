@@ -158,8 +158,7 @@ $('rTol').onchange = () => { st.tol = +$('rTol').value; analisar(); };
 ['nLarg', 'nBase', 'nRelevo'].forEach(id => $(id).onchange = () => { marcarEsp(); limpar3D(); });
 
 // ---------------------------------------------------------------- 3D
-const R = (() => {
-  const cv = $('view');
+function criarVisor(cv) {
   const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   const scene = new THREE.Scene();
@@ -196,6 +195,7 @@ const R = (() => {
   cv.addEventListener('wheel', e => { e.preventDefault(); dist = Math.min(1500, Math.max(30, dist * (1 + e.deltaY * 0.001))); desenhar(); }, { passive: false });
   window.addEventListener('resize', () => { tam(); desenhar(); });
   tam(); desenhar();
+  const redesenhar = () => { tam(); desenhar(); };
   return {
     mostrar(objetos) {
       grupo.clear();
@@ -213,7 +213,7 @@ const R = (() => {
         grupo.add(m);
         g.computeBoundingSphere(); raio = Math.max(raio, g.boundingSphere.radius + Math.hypot(...ob.desloc));
       }));
-      dist = raio * 3.2; rx = -0.55; rz = 0;
+      dist = raio * 4; rx = -0.55; rz = 0;
       desenhar();
     },
     recolorir() {
@@ -221,8 +221,10 @@ const R = (() => {
       desenhar();
     },
     limpar() { grupo.clear(); desenhar(); },
+    redesenhar,
   };
-})();
+}
+const R = criarVisor($('view'));
 
 function coresPeca() {
   // [base, depois cada camada na ordem de st.peca.camadas]
@@ -403,12 +405,17 @@ $('bEnviar').onclick = () => {
   if (!(window.Android && Android.enviarGcode)) { msgEnvio('O envio só funciona dentro do app no celular.', 'err'); return; }
   $('bEnviar').disabled = true; $('barEnvio').style.width = '0';
   msgEnvio('Enviando para a impressora…');
-  Android.enviarGcode(ip, nomeG(), b64(new TextEncoder().encode(st.gcode)), true);
+  Android.enviarGcode(ip, nomeG(), b64(new TextEncoder().encode(st.gcode)), false);
 };
 window.onEnvioProgresso = p => { $('barEnvio').style.width = p + '%'; msgEnvio('Enviando… ' + p + '%'); };
-window.onEnvioFim = (status, texto) => {
+window.onEnvioFim = async (status, texto) => {
   $('bEnviar').disabled = false;
-  if (status === 200 || status === 201) { $('barEnvio').style.width = '100%'; msgEnvio('Enviado! A impressão deve começar na U1. Acompanhe a primeira camada.', 'ok'); }
+  if (status === 200 || status === 201) {
+    $('barEnvio').style.width = '100%'; msgEnvio('Arquivo na impressora. Iniciando…');
+    window.iniciarImpressao($('ipU1').value.trim(), nomeG()).then(r => r.status === 200
+      ? msgEnvio('Impressão iniciada! Acompanhe a primeira camada.', 'ok')
+      : msgEnvio('Enviado, mas a impressora não iniciou (erro ' + r.status + '). Inicie pela tela da U1.', 'err'));
+  }
   else if (status === 0) msgEnvio('Sem resposta da impressora. Confira o IP e se o celular está no mesmo Wi-Fi.\n' + texto, 'err');
   else if (status === 401 || status === 403) msgEnvio('A impressora recusou a conexão (erro ' + status + ').', 'err');
   else msgEnvio('Erro ' + status + ': ' + texto.slice(0, 200), 'err');
@@ -416,3 +423,10 @@ window.onEnvioFim = (status, texto) => {
 function msgEnvio(t, cls) { $('msgEnvio').textContent = t; $('msgEnvio').className = 'msg ' + (cls || ''); }
 
 function msg(t, cls) { $('msg').textContent = t; $('msg').className = 'msg ' + (cls || ''); }
+
+// abas
+segmento('abas', v => {
+  $('abaCriar').hidden = v !== 'criar'; $('abaFatiar').hidden = v !== 'fatiar';
+  window.scrollTo(0, 0);
+  if (v === 'fatiar' && window.R2) R2.redesenhar();
+});

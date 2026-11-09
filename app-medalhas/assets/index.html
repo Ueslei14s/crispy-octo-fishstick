@@ -54,15 +54,28 @@
   .grade canvas { width: 72px; height: 48px; }
   .grade2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   [hidden] { display: none !important; }
-  #cvCamada { width: 100%; aspect-ratio: 1; background: #0e1014; border-radius: 12px; display: block; }
+  .abas { margin: 4px 16px 0; }
+  #view2 { width: 100%; aspect-ratio: 1; border-radius: 12px; background: radial-gradient(circle at 50% 40%, #2a2f38, #0e1014); touch-action: none; display: block; }
+  #inModelo { display: none; }
+  .slot { background: #0e1014; border-radius: 10px; padding: 10px; display: grid; gap: 6px; font-size: 13px; }
+  .slot .topo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+  .bola { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #3a414c; flex: none; }
+  .slot select, .slot input[type=color] { padding: 6px; font-size: 13px; }
+  .slot button { padding: 7px; font-size: 13px; }
+  .mapa { display: flex; align-items: center; gap: 10px; background: #0e1014; border-radius: 10px; padding: 8px 10px; }
+  .mapa .n { flex: 1; font-size: 14px; }
+  .mapa select { width: auto; flex: 1; }
+  .msg.warn { color: #ffcc80; }
+  .cvcam, #cvCamada { width: 100%; aspect-ratio: 1; background: #0e1014; border-radius: 12px; display: block; }
   input[type=text] { width: 100%; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: #0e1014; color: var(--text); font-size: 16px; }
   .bar { height: 8px; border-radius: 6px; background: #0e1014; overflow: hidden; }
   .bar > div { height: 100%; width: 0; background: var(--gold); transition: width .2s; }
 </style>
 </head>
 <body>
-<header><h1>Forja <b>3D</b></h1><span>foto → medalha, chaveiro ou troféu</span></header>
-<main>
+<header><h1>Forja <b>3D</b></h1><span>peças 3D e fatiador para a Snapmaker U1</span></header>
+<nav class="seg abas" id="abas"><button data-v="criar" class="on">Criar peça</button><button data-v="fatiar">Fatiar arquivo</button></nav>
+<main id="abaCriar">
   <section class="card">
     <h2>1. Imagem</h2>
     <input id="inFoto" type="file" accept="image/*">
@@ -185,6 +198,63 @@
     <div id="msgEnvio" class="msg"></div>
   </section>
 </main>
+<main id="abaFatiar" hidden>
+  <section class="card">
+    <h2>1. Arquivo</h2>
+    <input id="inModelo" type="file" accept=".3mf,.stl,model/3mf,model/stl,application/octet-stream">
+    <button id="bModelo" class="gold">Abrir 3MF ou STL</button>
+    <div id="infoModelo" class="dim">Abra qualquer peça: projetos do Snapmaker Orca, Bambu Studio, OrcaSlicer, PrusaSlicer, 3MF do MakerWorld/Printables ou STL.</div>
+    <div id="avisosModelo" class="msg warn"></div>
+    <canvas id="view2"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>2. Impressora e filamentos</h2>
+    <label class="f">IP da Snapmaker U1<input id="ipU1b" type="text" inputmode="decimal" placeholder="ex.: 192.168.0.25"></label>
+    <button id="bLerImp">Ler filamentos da impressora</button>
+    <div id="slots" class="grade2"></div>
+    <div id="msgImp" class="msg"></div>
+  </section>
+
+  <section class="card">
+    <h2>3. Cores da peça → cabeças da impressora</h2>
+    <div id="mapaCores" class="cores"><div class="vazio">Abra um arquivo para ver as cores.</div></div>
+    <button id="bAutoMapa">Combinar automaticamente pela cor</button>
+  </section>
+
+  <section class="card">
+    <h2>4. Configuração</h2>
+    <label class="f">Perfil
+      <select id="selPreset"></select></label>
+    <div id="descPreset" class="dim"></div>
+    <div class="row">
+      <label class="f">Suportes
+        <select id="selSup"><option value="off">Sem suporte</option><option value="mesa">Só a partir da mesa</option><option value="tudo">Em todo lugar</option></select></label>
+      <label class="f">Brim (mm)<input id="nBrim" type="number" min="0" max="10" step="1" value="0"></label>
+    </div>
+    <div class="row">
+      <label class="f">Passar ferro
+        <select id="selFerro2"><option value="preset">Do perfil</option><option value="no ironing">Desligado</option><option value="top">Superfícies de cima</option><option value="topmost">Só a mais alta</option></select></label>
+      <label class="f">Preenchimento (%)<input id="nInfill2" type="number" min="0" max="100" step="5" placeholder="do perfil"></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>5. Fatiar e imprimir</h2>
+    <button id="bFatiar2" class="primary" disabled>Fatiar</button>
+    <div id="resumo2" class="dim"></div>
+    <div id="boxPrev2" hidden>
+      <canvas id="cvCamada2" class="cvcam"></canvas>
+      <label class="f">Camada <span id="txtCamada2"></span><input id="rCamada2" type="range" min="1" max="1" value="1"></label>
+    </div>
+    <div class="row">
+      <button id="bGcode2" disabled>Salvar G-code</button>
+      <button id="bEnviar2" class="gold" disabled>Enviar e imprimir</button>
+    </div>
+    <div class="bar"><div id="barEnvio2"></div></div>
+    <div id="msg2" class="msg"></div>
+  </section>
+</main>
 <script src="lib/clipper.js"></script>
 <script src="lib/earcut.min.js"></script>
 <script src="lib/three.min.js"></script>
@@ -192,6 +262,8 @@
 <script src="motor.js"></script>
 <script src="modelo_u1.js"></script>
 <script src="fatiador.js"></script>
+<script src="malhas.js"></script>
 <script src="app.js"></script>
+<script src="fatiar_arquivo.js"></script>
 </body>
 </html>
