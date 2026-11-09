@@ -19,6 +19,9 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Forja 3D: transforma uma foto ou logo em medalha, chaveiro ou troféu para impressão 3D.
@@ -160,7 +163,69 @@ public class MainActivity extends Activity {
         if (web.canGoBack()) web.goBack(); else super.onBackPressed();
     }
 
+    private static String lerResposta(HttpURLConnection c) {
+        try {
+            InputStream in = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
+            if (in == null) return "";
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] b = new byte[8192];
+            int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            in.close();
+            return bo.toString("UTF-8");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     private class Ponte {
+        /** Envia o G-code para o Moonraker da U1 (porta 7125) e, se pedido, inicia a impressão. */
+        @JavascriptInterface
+        public void enviarGcode(String ip, String nome, String base64, boolean imprimir) {
+            new Thread(() -> {
+                int status = 0;
+                String texto;
+                try {
+                    byte[] dados = Base64.decode(base64, Base64.DEFAULT);
+                    String base = ip.trim();
+                    if (!base.startsWith("http")) base = "http://" + base;
+                    if (!base.substring(7).contains(":")) base = base + ":7125";
+                    String limite = "----Forja3D" + System.currentTimeMillis();
+                    StringBuilder cab = new StringBuilder();
+                    cab.append("--").append(limite).append("\r\nContent-Disposition: form-data; name=\"root\"\r\n\r\ngcodes\r\n");
+                    if (imprimir) cab.append("--").append(limite).append("\r\nContent-Disposition: form-data; name=\"print\"\r\n\r\ntrue\r\n");
+                    cab.append("--").append(limite).append("\r\nContent-Disposition: form-data; name=\"file\"; filename=\"")
+                       .append(nome.replace("\"", "")).append("\"\r\nContent-Type: application/octet-stream\r\n\r\n");
+                    byte[] ini = cab.toString().getBytes(StandardCharsets.UTF_8);
+                    byte[] fim = ("\r\n--" + limite + "--\r\n").getBytes(StandardCharsets.UTF_8);
+                    HttpURLConnection c = (HttpURLConnection) new URL(base + "/server/files/upload").openConnection();
+                    c.setRequestMethod("POST");
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(120000);
+                    c.setDoOutput(true);
+                    c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + limite);
+                    c.setFixedLengthStreamingMode(ini.length + dados.length + fim.length);
+                    try (OutputStream out = c.getOutputStream()) {
+                        out.write(ini);
+                        int ultimo = -1;
+                        for (int i = 0; i < dados.length; i += 65536) {
+                            int n = Math.min(65536, dados.length - i);
+                            out.write(dados, i, n);
+                            int pct = (int) ((long) (i + n) * 100 / dados.length);
+                            if (pct != ultimo) { ultimo = pct; js("onEnvioProgresso(" + pct + ")"); }
+                        }
+                        out.write(fim);
+                    }
+                    status = c.getResponseCode();
+                    texto = lerResposta(c);
+                    c.disconnect();
+                } catch (Exception e) {
+                    texto = e.getClass().getSimpleName() + ": " + e.getMessage();
+                }
+                js("onEnvioFim(" + status + "," + JSONObject.quote(texto) + ")");
+            }).start();
+        }
+
         /** Recebe o arquivo em base64 e pergunta ao usuário onde salvar. */
         @JavascriptInterface
         public void saveFile(String nome, String mime, String base64) {

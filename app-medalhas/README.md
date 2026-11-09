@@ -22,6 +22,18 @@ App Android que transforma uma **foto ou logo** em uma peça para impressão 3D 
    - **3MF universal:** formato multicolor do PrusaSlicer (PrusaSlicer, OrcaSlicer, Bambu Studio)
    - **STLs por cor (.zip):** um STL por filamento e um LEIA-ME. O formato STL não guarda cor, por isso vem um arquivo por cor
 
+## Fatiar e imprimir (Snapmaker U1)
+O app também **fatia no celular** e gera o G-code da U1. É um fatiador feito só para as peças do Forja 3D: pilhas de formas planas como base, relevo e degraus do pedestal. Por isso ele calcula cada camada direto dos contornos 2D, sem cortar malha.
+- **Camadas:** a altura escolhida, com limites exatos no fim da base, do relevo e de cada degrau.
+- **Paredes:** começam pelo fundo, para a costura ficar alinhada.
+- **Preenchimento:** sólido em cima e embaixo, grade no miolo, superfície de cima e **passar ferro** com o fluxo calculado como no Orca (fluxo × espaçamento × altura).
+- **Cores:** torre de limpeza de 30 × 30 mm e troca de cabeça com as macros da U1.
+- **Formato do arquivo:** início, trocas, final e bloco de configuração copiados de um G-code real do Snapmaker Orca 2.4.1 que imprimiu na U1 (`assets/modelo_u1.js`).
+- **Saída:** salva o `.gcode` ou **envia direto para a impressora** pelo Wi-Fi (Moonraker, porta 7125) e já começa a imprimir.
+- **Prévia:** dá para ver o resultado camada por camada antes de imprimir.
+
+> Fatiador experimental: acompanhe a primeira camada das primeiras impressões.
+
 ## Dicas
 - Funciona melhor com **logos e desenhos de cores chapadas**. Fotos comuns (pessoas, paisagens) viram manchas de cor.
 - Se o fundo "vazar" para dentro do logo, diminua a **separação do fundo**. Se sobrar fundo, aumente.
@@ -30,6 +42,8 @@ App Android que transforma uma **foto ou logo** em uma peça para impressão 3D 
 ## Estrutura
 - `assets/motor.js`: processamento de imagem, contornos, geometria 2D (Clipper), malha 3D (earcut) e exportação 3MF/STL
 - `assets/app.js` e `assets/index.html`: tela e visualização 3D (three.js)
+- `assets/fatiador.js`: fatiador para a U1 (camadas, paredes, preenchimento, passar ferro, torre, trocas de cabeça, G-code)
+- `assets/modelo_u1.js`: trechos de um G-code real da U1 usados como modelo
 - `assets/perfis_u1.js`: perfis da Snapmaker U1 (impressora, qualidades e filamentos), com a herança já resolvida
 - `assets/lib/`: three.js r158, earcut 2.2.4 e clipper-lib 6.4.2, embutidos para funcionar offline (licenças MIT e Boost)
 - `src/.../MainActivity.java`: WebView, escolha de imagem, "Compartilhar" e salvamento de arquivos

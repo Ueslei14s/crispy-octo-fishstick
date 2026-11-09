@@ -236,7 +236,8 @@ function recolorir() {
 }
 function limpar3D() {
   st.peca = null; st.objetos = null;
-  $('b3mf').disabled = $('bStl').disabled = $('bOrca').disabled = true; $('info').textContent = '';
+  $('b3mf').disabled = $('bStl').disabled = $('bOrca').disabled = $('bFatiar').disabled = true;
+  limparFatia(); $('info').textContent = '';
   R.limpar();
 }
 
@@ -257,7 +258,7 @@ $('bGerar').onclick = () => {
       $('info').textContent = `${Motor.PRODUTOS[P.produto].nome}: ${P.largura.toFixed(1)} × ${P.altura.toFixed(1)} mm · ` +
         `${(P.espessura + P.relevo).toFixed(1)} mm de espessura · ${P.camadas.length + 1} cores` +
         (P.extras.trofeu ? ` · pedestal ${P.extras.trofeu.pedestal.nome}, encaixe de ${P.extras.trofeu.pedestal.profundidade} mm` : '') + ` · ${Math.round(tri / 1000)} mil triângulos`;
-      $('b3mf').disabled = $('bStl').disabled = $('bOrca').disabled = false;
+      $('b3mf').disabled = $('bStl').disabled = $('bOrca').disabled = $('bFatiar').disabled = false;
       msg(`Pronto em ${((performance.now() - t0) / 1000).toFixed(1)} s. Arraste para girar e use dois dedos para aproximar.`, 'ok');
     } catch (e) {
       console.error(e);
@@ -306,5 +307,112 @@ $('bOrca').onclick = async () => {
     salvar(`${st.nome}_${st.produto}_U1.3mf`, 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', bytes);
   } catch (e) { console.error(e); msg('Erro ao gerar o projeto: ' + e.message, 'err'); }
 };
+
+// ---------------------------------------------------------------- fatiar e imprimir
+st.fatia = null;
+function limparFatia() {
+  st.fatia = null; st.gcode = null;
+  $('bGcode').disabled = $('bEnviar').disabled = true; $('boxPrev').hidden = true; $('resumoFat').textContent = '';
+}
+try { $('ipU1').value = localStorage.getItem('ipU1') || ''; } catch (e) {}
+$('ipU1').onchange = () => { try { localStorage.setItem('ipU1', $('ipU1').value.trim()); } catch (e) {} };
+
+function opcoesFatia() {
+  const PF = PERFIS_U1, fil = [0, 1, 2, 3].map(i => PF.filamentos[$('fil' + i).value] || PF.filamentos.PLA);
+  const temps = fil.map(f => +f.cfg.nozzle_temperature[0]);
+  // PLA: 65 °C, como na impressão real que deu certo na U1; outros materiais: perfil oficial
+  const mesa = Math.max(...fil.map(f => /^PLA/.test(f.cfg.filament_type[0]) ? 65 : +(f.cfg.textured_plate_temp || ['65'])[0]));
+  const vitr = Math.min(...fil.map(f => +(f.cfg.temperature_vitrification || ['45'])[0]));
+  const h = +$('selQual').value;
+  return {
+    h, h0: h <= 0.12 ? 0.2 : 0.25, paredes: +$('nParedes').value, topo: +$('nTopo').value, fundo: 3,
+    infill: +$('nInfill').value / 100, ferro: $('selFerro').value, ferroFluxo: +$('nFerroFluxo').value / 100,
+    ferroEsp: +$('nFerroEsp').value, ferroVel: +$('nFerroVel').value, temps, mesa, vitrificacao: vitr,
+    tipos: fil.map(f => f.cfg.filament_type[0]), cores: coresHex(),
+  };
+}
+function miniatura(lado) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = lado;
+  const ctx = cv.getContext('2d');
+  const P = st.peca, k = lado * 0.9 / Math.max(P.largura, P.altura), m = lado / 2;
+  const desenha = (paths, cor) => {
+    ctx.beginPath();
+    for (const r of paths) r.forEach((q, i) => { const x = m + q.X / 1000 * k, y = m - q.Y / 1000 * k; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.closePath(); ctx.fillStyle = cor; ctx.fill('nonzero');
+  };
+  const cores = coresHex();
+  desenha(P.contorno, cores[0]);
+  P.camadas.forEach((c, i) => desenha(c.paths, cores[i + 1]));
+  return { w: lado, h: lado, b64: cv.toDataURL('image/png').split(',')[1] };
+}
+$('bFatiar').onclick = () => {
+  msg('Fatiando…'); $('bFatiar').disabled = true;
+  setTimeout(() => {
+    try {
+      const t0 = performance.now(), o = opcoesFatia();
+      const r = Fatiador.fatiar(st.peca, st.objetos, o);
+      const cfg = {
+        layer_height: o.h, initial_layer_print_height: o.h0, wall_loops: o.paredes, top_shell_layers: o.topo,
+        sparse_infill_density: Math.round(o.infill * 100) + '%', ironing_type: o.ferro, ironing_flow: Math.round(o.ferroFluxo * 100) + '%',
+        ironing_spacing: o.ferroEsp, ironing_speed: `${o.ferroVel},${o.ferroVel}`, filament_colour: o.cores.join(';'),
+        filament_type: o.tipos.join(';'), nozzle_temperature: o.temps.join(','), nozzle_temperature_initial_layer: o.temps.join(','),
+        textured_plate_temp: Array(4).fill(o.mesa).join(','), textured_plate_temp_initial_layer: Array(4).fill(o.mesa).join(','),
+        hot_plate_temp: Array(4).fill(o.mesa).join(','), hot_plate_temp_initial_layer: Array(4).fill(o.mesa).join(','),
+      };
+      st.gcode = Fatiador.montarArquivo(r, [miniatura(48), miniatura(300)], cfg);
+      st.fatia = r;
+      const g = r.uso.gr.reduce((a, b) => a + b, 0);
+      $('resumoFat').textContent = `${r.camadas.length} camadas · ${Fatiador.hms(r.tempoTotal)} (estimativa) · ${g.toFixed(1)} g de filamento · ` +
+        `${r.trocas} trocas de cabeça · G-code de ${(st.gcode.length / 1048576).toFixed(1)} MB · fatiado em ${((performance.now() - t0) / 1000).toFixed(1)} s`;
+      $('rCamada').max = r.camadas.length; $('rCamada').value = r.camadas.length;
+      $('boxPrev').hidden = false; desenharCamada();
+      $('bGcode').disabled = $('bEnviar').disabled = false;
+      msg('Fatiado. Confira as camadas abaixo antes de imprimir.', 'ok');
+    } catch (e) { console.error(e); msg('Erro ao fatiar: ' + e.message, 'err'); }
+    $('bFatiar').disabled = false;
+  }, 30);
+};
+const COR_TIPO = { 'Ironing': '#3aa0ff', 'Prime tower': '#7a828c' };
+function desenharCamada() {
+  const r = st.fatia; if (!r) return;
+  const l = +$('rCamada').value - 1, c = r.camadas[l];
+  $('txtCamada').textContent = `${l + 1} de ${r.camadas.length} · Z ${c.z.toFixed(2)} mm · altura ${c.h.toFixed(2)} mm`;
+  const cv = $('cvCamada'), lado = cv.clientWidth * 2 || 600; cv.width = cv.height = lado;
+  const ctx = cv.getContext('2d'); ctx.fillStyle = '#c8ced6'; ctx.fillRect(0, 0, lado, lado);
+  // enquadra peças + torre
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  r.prev.forEach(cam => cam.forEach(t => t.pts.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); })));
+  const k = lado * 0.94 / Math.max(x1 - x0, y1 - y0), ox = (lado - (x1 - x0) * k) / 2, oy = (lado - (y1 - y0) * k) / 2;
+  const cores = coresHex();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const t of r.prev[l]) {
+    ctx.strokeStyle = COR_TIPO[t.tipo] || cores[t.f - 1];
+    ctx.lineWidth = Math.max(1, 0.42 * k * (t.tipo === 'Ironing' ? 0.35 : 0.9));
+    ctx.beginPath();
+    t.pts.forEach(([x, y], i) => { const px = ox + (x - x0) * k, py = lado - (oy + (y - y0) * k); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+    ctx.stroke();
+  }
+}
+$('rCamada').oninput = desenharCamada;
+const nomeG = () => `${st.nome}_${st.produto}_U1.gcode`;
+$('bGcode').onclick = () => salvar(nomeG(), 'text/x-gcode', new TextEncoder().encode(st.gcode));
+$('bEnviar').onclick = () => {
+  const ip = $('ipU1').value.trim();
+  if (!ip) { msgEnvio('Digite o IP da impressora (aparece na tela da U1, em Configurações → Wi-Fi).', 'err'); return; }
+  try { localStorage.setItem('ipU1', ip); } catch (e) {}
+  if (!(window.Android && Android.enviarGcode)) { msgEnvio('O envio só funciona dentro do app no celular.', 'err'); return; }
+  $('bEnviar').disabled = true; $('barEnvio').style.width = '0';
+  msgEnvio('Enviando para a impressora…');
+  Android.enviarGcode(ip, nomeG(), b64(new TextEncoder().encode(st.gcode)), true);
+};
+window.onEnvioProgresso = p => { $('barEnvio').style.width = p + '%'; msgEnvio('Enviando… ' + p + '%'); };
+window.onEnvioFim = (status, texto) => {
+  $('bEnviar').disabled = false;
+  if (status === 200 || status === 201) { $('barEnvio').style.width = '100%'; msgEnvio('Enviado! A impressão deve começar na U1. Acompanhe a primeira camada.', 'ok'); }
+  else if (status === 0) msgEnvio('Sem resposta da impressora. Confira o IP e se o celular está no mesmo Wi-Fi.\n' + texto, 'err');
+  else if (status === 401 || status === 403) msgEnvio('A impressora recusou a conexão (erro ' + status + ').', 'err');
+  else msgEnvio('Erro ' + status + ': ' + texto.slice(0, 200), 'err');
+};
+function msgEnvio(t, cls) { $('msgEnvio').textContent = t; $('msgEnvio').className = 'msg ' + (cls || ''); }
 
 function msg(t, cls) { $('msg').textContent = t; $('msg').className = 'msg ' + (cls || ''); }

@@ -54,6 +54,10 @@
   .grade canvas { width: 72px; height: 48px; }
   .grade2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   [hidden] { display: none !important; }
+  #cvCamada { width: 100%; aspect-ratio: 1; background: #0e1014; border-radius: 12px; display: block; }
+  input[type=text] { width: 100%; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: #0e1014; color: var(--text); font-size: 16px; }
+  .bar { height: 8px; border-radius: 6px; background: #0e1014; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--gold); transition: width .2s; }
 </style>
 </head>
 <body>
@@ -162,12 +166,32 @@
     <div class="dim">3MF universal: PrusaSlicer, OrcaSlicer, Bambu Studio. STLs por cor: qualquer fatiador; abra todos juntos como um objeto de várias partes.</div>
     <div id="msg" class="msg"></div>
   </section>
+
+  <section class="card">
+    <h2>7. Fatiar e imprimir (Snapmaker U1)</h2>
+    <div class="dim">Gera o G-code direto no celular, com as configurações do otimizador, e envia para a impressora.</div>
+    <button id="bFatiar" class="primary" disabled>Fatiar</button>
+    <div id="resumoFat" class="dim"></div>
+    <div id="boxPrev" hidden>
+      <canvas id="cvCamada"></canvas>
+      <label class="f">Camada <span id="txtCamada"></span><input id="rCamada" type="range" min="1" max="1" value="1"></label>
+    </div>
+    <div class="row">
+      <button id="bGcode" disabled>Salvar G-code</button>
+      <button id="bEnviar" class="gold" disabled>Enviar e imprimir</button>
+    </div>
+    <label class="f">IP da impressora (o mesmo do Envia U1)<input id="ipU1" type="text" inputmode="decimal" placeholder="ex.: 192.168.0.25"></label>
+    <div class="bar"><div id="barEnvio"></div></div>
+    <div id="msgEnvio" class="msg"></div>
+  </section>
 </main>
 <script src="lib/clipper.js"></script>
 <script src="lib/earcut.min.js"></script>
 <script src="lib/three.min.js"></script>
 <script src="perfis_u1.js"></script>
 <script src="motor.js"></script>
+<script src="modelo_u1.js"></script>
+<script src="fatiador.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
