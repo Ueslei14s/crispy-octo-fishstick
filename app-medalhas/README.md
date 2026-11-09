@@ -32,7 +32,16 @@ App Android que transforma uma **foto ou logo** em uma peça para impressão 3D 
 - **Posiciona** a peça na mesa e mostra em 3D com as cores escolhidas.
 - **Filamentos da impressora:** lê o tipo, a cor, a marca e o RFID de cada cabeça (objeto `print_task_config` do firmware da U1). Rolos sem RFID podem ser editados (`SET_PRINT_FILAMENT_CONFIG`).
 - **Mapa de cores:** cada cor do arquivo vai para uma cabeça, com a combinação automática pela cor mais parecida. Avisa se misturar materiais ou usar uma cabeça vazia.
-- **Perfis:** ultra qualidade (0,08), alta (0,12), ótima (0,16), padrão (0,20), resistente (4 paredes, 40%) e rascunho (0,28).
+- **Configurações do próprio arquivo (padrão):** usa o que foi salvo no projeto do Snapmaker Orca, OrcaSlicer, Bambu Studio (`project_settings.config`) ou PrusaSlicer (`Slic3r_PE.config`).
+  - camada e primeira camada, paredes, topo/fundo, preenchimento
+  - passar ferro (tipo, fluxo, espaçamento, velocidade)
+  - suporte (ligado, só da mesa, ângulo) e brim (tipo e largura; o automático só entra em peças altas e finas)
+  - velocidades, fluxo máximo, temperatura do bico e da mesa conforme a chapa
+  - **ajustes por objeto** (por exemplo, 5 paredes ou 50% de preenchimento só numa peça)
+  - **placas:** você escolhe qual imprimir
+  - a temperatura do arquivo só vale se o material carregado na cabeça for o mesmo; se não for, vale a do material carregado, com aviso
+  - um resumo mostra o que foi lido e o que ainda não é aplicado (suporte em árvore e preenchimentos especiais saem em grade)
+- **Perfis do app** (para STL ou 3MF sem configurações): ultra qualidade (0,08), alta (0,12), ótima (0,16), padrão (0,20), resistente (4 paredes, 40%) e rascunho (0,28).
 - **Suportes** (sem, só a partir da mesa ou em todo lugar), **brim**, passar ferro e preenchimento.
 - **Fatiamento:** a malha é cortada pelas arestas dos triângulos, com o sentido das faces para os furos, e os contornos são simplificados a 0,025 mm.
 - **Envio:** sobe o arquivo, zera o mapa de cabeças da U1 (`SET_PRINT_EXTRUDER_MAP`, porque o G-code já usa as cabeças certas) e inicia a impressão.

@@ -204,6 +204,7 @@
     <input id="inModelo" type="file" accept=".3mf,.stl,model/3mf,model/stl,application/octet-stream">
     <button id="bModelo" class="gold">Abrir 3MF ou STL</button>
     <div id="infoModelo" class="dim">Abra qualquer peça: projetos do Snapmaker Orca, Bambu Studio, OrcaSlicer, PrusaSlicer, 3MF do MakerWorld/Printables ou STL.</div>
+    <label class="f" id="boxPlaca" hidden>Placa do projeto<select id="selPlaca"></select></label>
     <div id="avisosModelo" class="msg warn"></div>
     <canvas id="view2"></canvas>
   </section>
@@ -224,18 +225,21 @@
 
   <section class="card">
     <h2>4. Configuração</h2>
-    <label class="f">Perfil
+    <label class="f">Configurações
+      <select id="selOrigem"><option value="arquivo">Usar as do arquivo (como foram salvas no fatiador)</option><option value="perfil">Usar um perfil do app</option></select></label>
+    <div id="resumoCfg" class="dim"></div>
+    <label class="f" id="boxPreset">Perfil
       <select id="selPreset"></select></label>
     <div id="descPreset" class="dim"></div>
     <div class="row">
       <label class="f">Suportes
-        <select id="selSup"><option value="off">Sem suporte</option><option value="mesa">Só a partir da mesa</option><option value="tudo">Em todo lugar</option></select></label>
-      <label class="f">Brim (mm)<input id="nBrim" type="number" min="0" max="10" step="1" value="0"></label>
+        <select id="selSup"><option value="auto">Do arquivo/perfil</option><option value="off">Sem suporte</option><option value="mesa">Só a partir da mesa</option><option value="tudo">Em todo lugar</option></select></label>
+      <label class="f">Brim (mm)<input id="nBrim" type="number" min="0" max="10" step="1" placeholder="do arquivo/perfil"></label>
     </div>
     <div class="row">
       <label class="f">Passar ferro
-        <select id="selFerro2"><option value="preset">Do perfil</option><option value="no ironing">Desligado</option><option value="top">Superfícies de cima</option><option value="topmost">Só a mais alta</option></select></label>
-      <label class="f">Preenchimento (%)<input id="nInfill2" type="number" min="0" max="100" step="5" placeholder="do perfil"></label>
+        <select id="selFerro2"><option value="preset">Do arquivo/perfil</option><option value="no ironing">Desligado</option><option value="top">Superfícies de cima</option><option value="topmost">Só a mais alta</option></select></label>
+      <label class="f">Preenchimento (%)<input id="nInfill2" type="number" min="0" max="100" step="5" placeholder="do arquivo/perfil"></label>
     </div>
   </section>
 

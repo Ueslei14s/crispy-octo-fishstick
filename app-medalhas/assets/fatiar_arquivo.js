@@ -39,7 +39,14 @@ async function abrirModelo(bytes, nome) {
   msg2('Abrindo ' + nome + '…');
   $('avisosModelo').textContent = '';
   try {
-    const m = Malhas.posicionar(await Malhas.ler(bytes, nome));
+    const lido = await Malhas.ler(bytes, nome);
+    fa.lido = lido;
+    const sel = $('selPlaca'); sel.innerHTML = '';
+    lido.placas.forEach(p => { const o = document.createElement('option'); o.value = p.n; o.textContent = `Placa ${p.n}${p.nome ? ' · ' + p.nome : ''} (${lido.objetos.filter(x => x.placa === p.n).length} objeto(s))`; sel.append(o); });
+    $('boxPlaca').hidden = lido.placas.length < 2;
+    $('selOrigem').value = lido.config ? 'arquivo' : 'perfil';
+    $('selOrigem').querySelector('[value=arquivo]').disabled = !lido.config;
+    const m = Malhas.posicionar(lido, lido.placas.length > 1 ? lido.placas[0].n : undefined);
     fa.modelo = m; fa.nome = nome.replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '_').slice(0, 40) || 'peca';
     const fils = filamentosDoModelo();
     let tri = 0; m.objetos.forEach(o => o.volumes.forEach(v => { tri += v.tri.length / 9; }));
@@ -54,10 +61,85 @@ async function abrirModelo(bytes, nome) {
     montarMapa();
     mostrarModelo();
     $('bFatiar2').disabled = !m.cabe;
+    atualizarOrigem();
     limparFatia2();
     msg2('Arquivo aberto. Confira as cores e o perfil e toque em Fatiar.', 'ok');
   } catch (e) { console.error(e); msg2('Não consegui abrir: ' + e.message, 'err'); }
 }
+$('selPlaca').onchange = () => {
+  fa.modelo = Malhas.posicionar(fa.lido, +$('selPlaca').value);
+  const m = fa.modelo;
+  $('infoModelo').textContent = `Placa ${$('selPlaca').value}: ${m.objetos.length} objeto(s), ${m.objetos.reduce((a, o) => a + o.volumes.length, 0)} parte(s), ` +
+    `${filamentosDoModelo().length} cor(es) · ${m.tamanho.x.toFixed(1)} × ${m.tamanho.y.toFixed(1)} × ${m.tamanho.z.toFixed(1)} mm`;
+  const fils = filamentosDoModelo(); fils.forEach(f => { if (fa.mapa[f] === undefined) fa.mapa[f] = (f - 1) % 4; });
+  if (fa.slots) autoMapa();
+  montarMapa(); mostrarModelo(); limparFatia2();
+  $('bFatiar2').disabled = !fa.modelo.cabe;
+};
+$('selOrigem').onchange = () => { atualizarOrigem(); limparFatia2(); };
+function atualizarOrigem() {
+  const arq = $('selOrigem').value === 'arquivo' && fa.lido && fa.lido.config;
+  $('boxPreset').hidden = $('descPreset').hidden = !!arq;
+  $('resumoCfg').textContent = arq ? configDoArquivo().resumo : (fa.lido && !fa.lido.config ? 'Este arquivo não traz configurações de impressão (ex.: STL ou 3MF simples): escolha um perfil.' : '');
+}
+
+// ---------------------------------------------------------------- configurações salvas no 3MF
+const num = (v, i = 0) => {
+  if (v === undefined || v === null) return undefined;
+  const lista = Array.isArray(v) ? v : String(v).split(/[,;]/);
+  const x = parseFloat(lista[i] !== undefined ? lista[i] : lista[0]);
+  return isNaN(x) ? undefined : x;
+};
+const CHAPA = { 'Textured PEI Plate': 'textured_plate_temp', 'Cool Plate': 'cool_plate_temp', 'Engineering Plate': 'eng_plate_temp', 'High Temp Plate': 'hot_plate_temp', 'Smooth PEI Plate': 'hot_plate_temp', 'Supertack Plate': 'supertack_plate_temp' };
+const NOME_CHAPA = { 'Textured PEI Plate': 'PEI texturizada', 'Cool Plate': 'chapa fria', 'Engineering Plate': 'chapa de engenharia', 'High Temp Plate': 'chapa de alta temperatura', 'Smooth PEI Plate': 'PEI lisa', 'Supertack Plate': 'Supertack' };
+function traduzAjustes(c) {     // chaves do Orca -> opções do fatiador (só as presentes)
+  const o = {}, n = k => num(c[k]);
+  if (n('wall_loops') !== undefined) o.paredes = n('wall_loops');
+  if (n('top_shell_layers') !== undefined) o.topo = n('top_shell_layers');
+  if (n('bottom_shell_layers') !== undefined) o.fundo = n('bottom_shell_layers');
+  if (n('sparse_infill_density') !== undefined) o.infill = n('sparse_infill_density') / 100;
+  if (c.ironing_type) o.ferro = String(c.ironing_type);
+  if (n('ironing_flow') !== undefined) o.ferroFluxo = n('ironing_flow') / 100;
+  if (n('ironing_spacing') !== undefined) o.ferroEsp = n('ironing_spacing');
+  if (n('ironing_speed') !== undefined) o.ferroVel = n('ironing_speed');
+  if (c.brim_type) o.brimTipo = String(c.brim_type);
+  if (n('brim_width') !== undefined) o.brimLarg = n('brim_width');
+  return o;
+}
+function configDoArquivo() {
+  const c = fa.lido.config, o = traduzAjustes(c), res = [], ign = [];
+  o.h = num(c.layer_height) || 0.2; o.h0 = num(c.initial_layer_print_height) || Math.max(0.2, o.h);
+  if (o.paredes === undefined) o.paredes = 2; if (o.topo === undefined) o.topo = 5; if (o.fundo === undefined) o.fundo = 3;
+  if (o.infill === undefined) o.infill = 0.15; if (!o.ferro) o.ferro = 'no ironing';
+  o.ferroFluxo = o.ferroFluxo || 0.10; o.ferroEsp = o.ferroEsp || 0.13; o.ferroVel = o.ferroVel || 30;
+  const sup = String(c.enable_support) === '1' || c.enable_support === true;
+  o.suporte = !sup ? 'off' : (String(c.support_on_build_plate_only) === '1' ? 'mesa' : 'tudo');
+  o.anguloSuporte = num(c.support_threshold_angle) || 30;
+  const vel = { externa: 'outer_wall_speed', interna: 'inner_wall_speed', esparso: 'sparse_infill_speed', solido: 'internal_solid_infill_speed', topo: 'top_surface_speed',
+    prim: 'initial_layer_speed', primInfill: 'initial_layer_infill_speed', viagem: 'travel_speed', suporte: 'support_speed' };
+  o.vel = {}; for (const [k, ch] of Object.entries(vel)) { const v = num(c[ch]); if (v) o.vel[k] = v; }
+  o.tempsFil = Array.isArray(c.nozzle_temperature) || c.nozzle_temperature ? [...Array(16).keys()].map(i => num(c.nozzle_temperature, i)) : null;
+  const chapa = c.curr_bed_type || 'Textured PEI Plate';
+  o.mesaFil = c[CHAPA[chapa]] ? [...Array(16).keys()].map(i => num(c[CHAPA[chapa]], i)) : null;
+  o.volMaxFil = c.filament_max_volumetric_speed ? [...Array(16).keys()].map(i => num(c.filament_max_volumetric_speed, i)) : null;
+  o.tiposFil = c.filament_type ? (Array.isArray(c.filament_type) ? c.filament_type : String(c.filament_type).split(/[;,]/)) : null;
+  // resumo
+  const pct = v => Math.round(v * 100) + '%';
+  const ferroTxt = { 'no ironing': 'sem passar ferro', top: 'passar ferro nas superfícies de cima', topmost: 'passar ferro só na mais alta', solid: 'passar ferro em todas as sólidas' };
+  res.push(`camada ${o.h.toFixed(2)} mm (1ª ${o.h0.toFixed(2)})`, `${o.paredes} paredes`, `topo ${o.topo} / fundo ${o.fundo}`, `${pct(o.infill)} de preenchimento`, ferroTxt[o.ferro] || o.ferro);
+  res.push(o.suporte === 'off' ? 'sem suporte' : `suporte ${o.suporte === 'mesa' ? 'só a partir da mesa' : 'em todo lugar'} (${o.anguloSuporte}°)`);
+  res.push(o.brimTipo === 'no_brim' ? 'sem brim' : o.brimTipo === 'auto_brim' ? 'brim automático' : `brim de ${o.brimLarg || 5} mm`);
+  res.push(`chapa ${NOME_CHAPA[chapa] || chapa}`);
+  if (o.tempsFil) res.push('bico ' + [...new Set(filamentosDoModelo().map(f => o.tempsFil[f - 1]).filter(Boolean))].join('/') + ' °C');
+  if (sup && /tree/.test(String(c.support_type))) ign.push('suporte em árvore (sai como suporte em grade)');
+  if (c.sparse_infill_pattern && !/grid|rectilinear|line|zig/i.test(c.sparse_infill_pattern)) ign.push(`preenchimento ${c.sparse_infill_pattern} (sai em grade)`);
+  if (String(c.spiral_mode) === '1') ign.push('modo vaso (espiral)');
+  const objs = fa.modelo.objetos.filter(x => x.ajustes && Object.keys(x.ajustes).length);
+  if (objs.length) res.push(`${objs.length} objeto(s) com ajustes próprios`);
+  if (objs.some(x => x.ajustes.layer_height)) ign.push('altura de camada diferente por objeto');
+  return { o, resumo: `Configurações do ${fa.lido.origemConfig}: ${res.join(' · ')}.` + (ign.length ? `\nAinda não aplicado: ${ign.join('; ')}.` : '') };
+}
+
 function filamentosDoModelo() {
   const s = new Set(); fa.modelo.objetos.forEach(o => o.volumes.forEach(v => { if (!v.negativo) s.add(v.fil); }));
   return [...s].sort((a, b) => a - b);
@@ -81,11 +163,18 @@ function mostrarModelo() {
 function avisoMateriais() {
   const el = $('avisoMat') || (() => { const d = document.createElement('div'); d.id = 'avisoMat'; d.className = 'msg warn'; $('mapaCores').after(d); return d; })();
   if (!fa.slots || !fa.modelo) { el.textContent = ''; return; }
-  const tipos = new Set(Object.values(fa.mapa).map(i => fa.slots[i] && fa.slots[i].existe ? fa.slots[i].tipo : null).filter(Boolean));
-  const vazias = [...new Set(Object.values(fa.mapa))].filter(i => !fa.slots[i] || !fa.slots[i].existe).map(i => i + 1);
+  const cabecas = [...new Set(filamentosDoModelo().map(f => fa.mapa[f]))];      // só as cores desta placa
+  const tipos = new Set(cabecas.map(i => fa.slots[i] && fa.slots[i].existe ? fa.slots[i].tipo : null).filter(Boolean));
+  const vazias = cabecas.filter(i => !fa.slots[i] || !fa.slots[i].existe).map(i => i + 1);
   const av = [];
   if (tipos.size > 1) av.push(`Atenção: a peça vai misturar materiais diferentes (${[...tipos].join(' + ')}). Eles podem não grudar bem um no outro.`);
   if (vazias.length) av.push(`A cabeça ${vazias.join(', ')} está sem filamento na impressora.`);
+  const cfg = fa.lido && fa.lido.config, tiposArq = cfg && cfg.filament_type ? (Array.isArray(cfg.filament_type) ? cfg.filament_type : String(cfg.filament_type).split(/[;,]/)) : null;
+  if (tiposArq) filamentosDoModelo().forEach(f => {
+    const s = fa.slots[fa.mapa[f]], ta = tiposArq[f - 1];
+    if (s && s.existe && ta && s.tipo.toUpperCase() !== String(ta).toUpperCase())
+      av.push(`A cor ${f} foi configurada para ${ta} no arquivo, mas a cabeça ${fa.mapa[f] + 1} tem ${s.tipo}: vou usar as temperaturas de ${s.tipo}.`);
+  });
   el.textContent = av.join('\n');
 }
 
@@ -205,7 +294,8 @@ function nomeCor(h) {
 // ---------------------------------------------------------------- fatiar
 function limparFatia2() { fa.fatia = null; fa.gcode = null; $('bGcode2').disabled = $('bEnviar2').disabled = true; $('boxPrev2').hidden = true; $('resumo2').textContent = ''; }
 function opcoes2() {
-  const pr = PRESETS[$('selPreset').value], PF = PERFIS_U1;
+  const doArquivo = $('selOrigem').value === 'arquivo' && fa.lido && fa.lido.config;
+  const pr = doArquivo ? configDoArquivo().o : PRESETS[$('selPreset').value], PF = PERFIS_U1;
   const perfilDe = i => {
     const s = fa.slots && fa.slots[i];
     const chave = s ? (MATERIAL_PERFIL[(s.tipo + (s.sub && /silk/i.test(s.sub) ? ' SILK' : '')).toUpperCase()] || MATERIAL_PERFIL[s.tipo.toUpperCase()] || 'PLA') : 'PLA';
@@ -214,15 +304,49 @@ function opcoes2() {
   const fil = [0, 1, 2, 3].map(perfilDe);
   const usadas = new Set(Object.values(fa.mapa));
   const temps = fil.map(f => +f.cfg.nozzle_temperature[0]);
-  const mesa = Math.max(...[...usadas].map(i => /^PLA/.test(fil[i].cfg.filament_type[0]) ? 65 : +(fil[i].cfg.textured_plate_temp || ['65'])[0]));
+  let mesa = Math.max(...[...usadas].map(i => /^PLA/.test(fil[i].cfg.filament_type[0]) ? 65 : +(fil[i].cfg.textured_plate_temp || ['65'])[0]));
+  let volMax;
+  if (doArquivo) {      // temperaturas, mesa e fluxo máximo vêm do filamento de cada cor no arquivo
+    const fs = filamentosDoModelo();
+    // a temperatura do arquivo só vale se o material carregado na cabeça for o mesmo do arquivo
+    for (let t = 0; t < 4; t++) {
+      const f = fs.find(f => fa.mapa[f] === t); if (!f || !pr.tempsFil || !pr.tempsFil[f - 1]) continue;
+      const s = fa.slots && fa.slots[t], tipoArq = pr.tiposFil && pr.tiposFil[f - 1];
+      if (!s || !s.existe || !tipoArq || s.tipo.toUpperCase() === String(tipoArq).toUpperCase()) temps[t] = pr.tempsFil[f - 1];
+    }
+    if (pr.mesaFil) {   // mesa: a do arquivo quando o material bate; senão, a do material carregado
+      const m = Math.max(...fs.map(f => {
+        const t = fa.mapa[f], s = fa.slots && fa.slots[t], tipoArq = pr.tiposFil && pr.tiposFil[f - 1];
+        const bate = !s || !s.existe || !tipoArq || s.tipo.toUpperCase() === String(tipoArq).toUpperCase();
+        return bate ? (pr.mesaFil[f - 1] || 0) : (/^PLA/.test(fil[t].cfg.filament_type[0]) ? 65 : +(fil[t].cfg.textured_plate_temp || ['65'])[0]);
+      }));
+      if (m > 0) mesa = m;
+    }
+    if (pr.volMaxFil) { const v = Math.min(...fs.map(f => pr.volMaxFil[f - 1] || 99)); if (v < 99) volMax = v; }
+  }
   const mapa = []; for (let f = 1; f <= 32; f++) mapa.push(fa.mapa[f] !== undefined ? fa.mapa[f] : (f - 1) % 4);
   const inf = $('nInfill2').value;
+  // brim: do campo, ou do arquivo (automático só para peças altas e finas), ou nenhum
+  const brimDe = (o, aj) => {
+    if ($('nBrim').value !== '') return +$('nBrim').value;
+    const tipo = (aj && aj.brimTipo) || pr.brimTipo, larg = (aj && aj.brimLarg) || pr.brimLarg || 5;
+    if (!tipo || tipo === 'no_brim') return 0;
+    if (tipo !== 'auto_brim') return larg;
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z1 = 0;
+    o.volumes.forEach(v => { for (let i = 0; i < v.tri.length; i += 3) { x0 = Math.min(x0, v.tri[i]); x1 = Math.max(x1, v.tri[i]); y0 = Math.min(y0, v.tri[i + 1]); y1 = Math.max(y1, v.tri[i + 1]); z1 = Math.max(z1, v.tri[i + 2]); } });
+    return z1 / Math.max(1, Math.min(x1 - x0, y1 - y0)) > 2.5 ? larg : 0;
+  };
+  const porObjeto = fa.modelo.objetos.map(o => {
+    const aj = doArquivo && o.ajustes ? traduzAjustes(o.ajustes) : {};
+    return Object.assign(aj, { brim: brimDe(o, aj) });
+  });
   return {
-    h: pr.h, h0: pr.h0, paredes: pr.paredes, topo: pr.topo, fundo: pr.fundo, velFator: pr.velFator,
+    h: pr.h, h0: pr.h0, paredes: pr.paredes, topo: pr.topo, fundo: pr.fundo, velFator: pr.velFator || 1, vel: pr.vel, volMax,
     infill: inf === '' ? pr.infill : +inf / 100,
-    ferro: $('selFerro2').value === 'preset' ? pr.ferro : $('selFerro2').value, ferroFluxo: 0.10, ferroEsp: 0.13, ferroVel: 30,
+    ferro: $('selFerro2').value === 'preset' ? pr.ferro : $('selFerro2').value, ferroFluxo: pr.ferroFluxo || 0.10, ferroEsp: pr.ferroEsp || 0.13, ferroVel: pr.ferroVel || 30,
     temps, mesa, vitrificacao: Math.min(...fil.map(f => +(f.cfg.temperature_vitrification || ['45'])[0])),
-    mapa, suporte: $('selSup').value, brim: +$('nBrim').value,
+    mapa, suporte: $('selSup').value === 'auto' ? (pr.suporte || 'off') : $('selSup').value, anguloSuporte: pr.anguloSuporte || 30,
+    brim: 0, porObjeto, filPadrao: filamentosDoModelo()[0],
     cores: [0, 1, 2, 3].map(i => corCabeca(i) || ['#FFFFFF', '#E3001B', '#1D5BD6', '#FFD400'][i]),
     tipos: fil.map(f => f.cfg.filament_type[0]),
   };

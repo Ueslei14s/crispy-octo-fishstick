@@ -172,14 +172,16 @@ const Fatiador = (() => {
       mapa: [0, 1, 2, 3, 4, 5, 6, 7], brim: 0, velFator: 1, filSuporte: 0,
     }, opt);
     const fv = P.velFator;
-    const V = { externa: 80 * fv, interna: 120 * fv, esparso: 270 * fv, solido: 250 * fv, topo: 80 * fv, prim: 50, primInfill: 105, viagem: 500, torre: 90, suporte: 150 * fv, ponte: 50 };
+    const V = Object.assign({ externa: 80 * fv, interna: 120 * fv, esparso: 270 * fv, solido: 250 * fv, topo: 80 * fv, prim: 50, primInfill: 105, viagem: 500, torre: 90, suporte: 150 * fv, ponte: 50 }, P.vel || {});
     const W = { externa: 0.42, interna: 0.45, esparso: 0.45, solido: 0.42, topo: 0.42, prim: 0.5, torre: 0.5, suporte: 0.42 };
-    const VOLMAX = 12;           // mm³/s (filament_max_volumetric_speed)
+    const VOLMAX = P.volMax || 12;   // mm³/s (filament_max_volumetric_speed)
     const RET = 1.5, RET_TROCA = 10, HOP = 0.4;
     const N = camadas.length, nObj = reg[0].length;
     const ferr = f => (P.mapa[f - 1] !== undefined ? P.mapa[f - 1] : f - 1);
 
-    const T = Math.max(P.topo, Math.ceil(1.0 / P.h)), B = Math.max(P.fundo, Math.ceil(0.8 / P.h));
+    // ajustes por objeto (vindos do projeto) por cima dos gerais
+    const PO = [...Array(nObj).keys()].map(o => Object.assign({}, P, (P.porObjeto && P.porObjeto[o]) || {}));
+    const TB = PO.map(q => [Math.max(q.topo, Math.ceil(1.0 / P.h)), Math.max(q.fundo, Math.ceil(0.8 / P.h))]);
     const ocupado = (l, o) => (l < 0 || l >= N ? [] : reg[l][o].tudo);
 
     // ---- plano de cada camada: para cada filamento, a lista de trajetos
@@ -189,6 +191,7 @@ const Fatiador = (() => {
       const porFil = {};
       for (let o = 0; o < nObj; o++) {
         // miolo (coberto por cima e por baixo) é o que pode ter preenchimento esparso
+        const Q = PO[o], [T, B] = TB[o];
         let miolo = ocupado(l, o);
         for (let j = 1; j <= T && miolo.length; j++) miolo = inter(miolo, ocupado(l + j, o));
         for (let j = 1; j <= B && miolo.length; j++) miolo = inter(miolo, ocupado(l - j, o));
@@ -198,7 +201,7 @@ const Fatiador = (() => {
           const wo = primeira ? W.prim : W.externa, wi = primeira ? W.prim : W.interna;
           // paredes: de dentro para fora
           const voltas = [];
-          for (let k = 0; k < P.paredes; k++) {
+          for (let k = 0; k < Q.paredes; k++) {
             const d = k === 0 ? wo / 2 : wo + wi * (k - 0.5);
             const lp = limpa(off(R, -d), 0.01);
             if (!lp.length) break;
@@ -231,26 +234,27 @@ const Fatiador = (() => {
           else {
             add(hachura(fundo, ang, W.solido), 'Bottom surface', W.solido, V.solido);
             add(hachura(interno, ang, W.solido), 'Internal solid infill', W.solido, V.solido);
-            if (esparso.length && P.infill > 0) {
-              const esp = 2 * W.esparso / P.infill;          // grade: duas direções na mesma camada
+            if (esparso.length && Q.infill > 0) {
+              const esp = 2 * W.esparso / Q.infill;          // grade: duas direções na mesma camada
               add(hachura(esparso, 45, esp).concat(hachura(esparso, -45, esp)), 'Sparse infill', W.esparso, V.esparso, 0);
             }
             add(hachura(topo, ang, W.topo), 'Top surface', W.topo, V.topo);
           }
           // passar ferro
           const ehTopoFinal = !acima.length || area(inter(R, acima)) < 0.01;
-          const quer = P.ferro === 'top' ? topo.length > 0 : P.ferro === 'topmost' ? (ehTopoFinal && topo.length > 0) : P.ferro === 'solid' ? solido.length > 0 : false;
+          const quer = Q.ferro === 'top' ? topo.length > 0 : Q.ferro === 'topmost' ? (ehTopoFinal && topo.length > 0) : Q.ferro === 'solid' ? solido.length > 0 : false;
           if (quer && !primeira) {
-            const alvo = P.ferro === 'solid' ? solido : topo;
-            for (const s of ordenar(hachura(limpa(off(alvo, -W.topo / 2), 0.05), ang + 90, P.ferroEsp), 1.6 * P.ferroEsp))
-              lista.push({ tipo: 'Ironing', pts: s, w: W.topo, v: P.ferroVel, fluxo: P.ferroFluxo, esp: P.ferroEsp, obj: o });
+            const alvo = Q.ferro === 'solid' ? solido : topo;
+            for (const s of ordenar(hachura(limpa(off(alvo, -W.topo / 2), 0.05), ang + 90, Q.ferroEsp), 1.6 * Q.ferroEsp))
+              lista.push({ tipo: 'Ironing', pts: s, w: W.topo, v: Q.ferroVel, fluxo: Q.ferroFluxo, esp: Q.ferroEsp, obj: o });
           }
         }
       }
       // suporte: grade espaçada + 2 camadas de interface mais densas sob a peça
       const sup = extras.suporte && extras.suporte[l];
       if (sup && sup.length) {
-        const fs = P.filSuporte || Math.min(...Object.keys(porFil).map(Number).concat([1]));
+        const chaves = Object.keys(porFil).map(Number);
+        const fs = P.filSuporte || (chaves.length ? Math.min(...chaves) : (P.filPadrao || 1));
         const lista = porFil[fs] = porFil[fs] || [];
         const prox = (extras.suporte[l + 1] || []), prox2 = (extras.suporte[l + 2] || []);
         const interface_ = limpa(dif(sup, inter(prox, prox2)), 0.2);
@@ -261,12 +265,12 @@ const Fatiador = (() => {
         add(hachura(off(interface_, -W.suporte), l % 2 ? 0 : 90, 0.8), 'Support interface', 1.2);
       }
       // brim na primeira camada
-      if (primeira && P.brim > 0) {
+      if (primeira && PO.some(q => q.brim > 0)) {
         const fb = Math.min(...Object.keys(porFil).map(Number));
         const lista = porFil[fb];
         for (let o = 0; o < nObj; o++) {
           const base = reg[0][o].tudo; if (!base.length) continue;
-          for (let k = Math.round(P.brim / W.prim); k >= 1; k--)
+          for (let k = Math.round(PO[o].brim / W.prim); k >= 1; k--)
             for (const r of limpa(off(base, W.prim * (k - 0.5)), 0.05)) lista.push({ tipo: 'Brim', pts: laco(r), w: W.prim, v: V.prim, obj: -1 });
         }
       }

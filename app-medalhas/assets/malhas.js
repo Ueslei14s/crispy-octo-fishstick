@@ -68,7 +68,7 @@ const Malhas = (() => {
       const v = [...txt.matchAll(/vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)/g)].map(m => [+m[1], +m[2], +m[3]]);
       tri = new Float32Array(v.flat());
     }
-    return { objetos: [{ nome: nome.replace(/\.[^.]+$/, ''), volumes: [{ nome: 'peça', fil: 1, tri }] }], cores: [], avisos: [] };
+    return { objetos: [{ nome: nome.replace(/\.[^.]+$/, ''), volumes: [{ nome: 'peça', fil: 1, tri }], placa: 1, ajustes: null }], cores: [], avisos: [], config: null, origemConfig: '', placas: [{ n: 1, nome: '' }] };
   }
 
   async function ler3MF(bytes, nomeArquivo) {
@@ -135,11 +135,24 @@ const Malhas = (() => {
     // configurações de cor por parte
     const filPorParte = {}, filPorObjeto = {}, nomePorObjeto = {}, subtipo = {};
     const ms = await xml('Metadata/model_settings.config');
+    const ajustesObj = {}, placaDe = {}, nomesPlaca = {};
+    if (ms) for (const pl of ms.getElementsByTagName('plate')) {
+      let pid = 1, nome = '';
+      for (const md of pl.children) if (md.tagName === 'metadata') {
+        if (md.getAttribute('key') === 'plater_id') pid = +md.getAttribute('value');
+        if (md.getAttribute('key') === 'plater_name') nome = md.getAttribute('value');
+      }
+      nomesPlaca[pid] = nome;
+      for (const mi of pl.getElementsByTagName('model_instance'))
+        for (const md of mi.getElementsByTagName('metadata')) if (md.getAttribute('key') === 'object_id') placaDe[md.getAttribute('value')] = pid;
+    }
     if (ms) for (const ob of ms.getElementsByTagName('object')) {
       const id = ob.getAttribute('id');
       for (const md of ob.children) if (md.tagName === 'metadata') {
-        if (md.getAttribute('key') === 'extruder') filPorObjeto[id] = +md.getAttribute('value');
-        if (md.getAttribute('key') === 'name') nomePorObjeto[id] = md.getAttribute('value');
+        const k = md.getAttribute('key'), v = md.getAttribute('value');
+        if (k === 'extruder') filPorObjeto[id] = +v;
+        else if (k === 'name') nomePorObjeto[id] = v;
+        else if (k !== 'module') (ajustesObj[id] = ajustesObj[id] || {})[k] = v;
       }
       for (const pt of ob.getElementsByTagName('part')) {
         const pid = pt.getAttribute('id');
@@ -164,12 +177,22 @@ const Malhas = (() => {
       faixasPrusa[id] = lista;
     }
     // cores dos filamentos do projeto
-    let cores = [];
+    let cores = [], config = null, origemConfig = '';
     const ps = await abrir('Metadata/project_settings.config');
-    if (ps) { try { const j = JSON.parse(dec.decode(ps)); if (Array.isArray(j.filament_colour)) cores = j.filament_colour.map(c => String(c).slice(0, 7)); } catch (e) { } }
-    if (!cores.length) {
+    if (ps) {
+      try {
+        config = JSON.parse(dec.decode(ps)); origemConfig = /Bambu/i.test(app) ? 'Bambu Studio' : /Snapmaker/i.test(app) ? 'Snapmaker Orca' : 'OrcaSlicer';
+        if (Array.isArray(config.filament_colour)) cores = config.filament_colour.map(c => String(c).slice(0, 7));
+      } catch (e) { config = null; }
+    }
+    if (!config) {
       const pc = await abrir('Metadata/Slic3r_PE.config');
-      if (pc) { const m = /; (?:filament|extruder)_colour = ([^\n]+)/.exec(dec.decode(pc)); if (m) cores = m[1].split(';').map(s => s.trim()); }
+      if (pc) {
+        const ini = {};
+        for (const ln of dec.decode(pc).split('\n')) { const m = /^; ([a-z0-9_]+) = (.*)$/.exec(ln); if (m) ini[m[1]] = m[2]; }
+        if (Object.keys(ini).length > 5) { config = prusaParaOrca(ini); origemConfig = 'PrusaSlicer'; }
+        if (ini.extruder_colour || ini.filament_colour) cores = (ini.filament_colour || ini.extruder_colour).split(';').map(s => s.trim());
+      }
     }
 
     // cores de materiais (basematerials/colorgroup) por arquivo
@@ -217,18 +240,44 @@ const Malhas = (() => {
           volumes.push({ nome: gr.nome || pt.nome || 'parte', fil, tri, negativo: sub === 'negative_part' || gr.tipo === 'NegativeVolume' });
         }
       }
-      if (volumes.length) objetos.push({ nome: nomePorObjeto[oid] || o.o.getAttribute('name') || ('Objeto ' + (objetos.length + 1)), volumes });
+      if (volumes.length) objetos.push({ nome: nomePorObjeto[oid] || o.o.getAttribute('name') || ('Objeto ' + (objetos.length + 1)), volumes, ajustes: ajustesObj[oid] || null, placa: placaDe[oid] || 1 });
     }
     for (const [f, c] of Object.entries(corDoFil)) if (!cores[f - 1]) cores[f - 1] = c;
     if (pintado) avisos.push('Este arquivo tem cores pintadas à mão nos triângulos. Essa pintura ainda não é suportada: cada parte sai na cor do filamento dela.');
     if (/BambuStudio/i.test(app)) avisos.push('Arquivo do Bambu Studio: as cores e posições foram lidas; confira o mapa de cores antes de imprimir.');
     if (!objetos.length) throw new Error('nenhum objeto imprimível no arquivo');
-    return { objetos, cores, avisos };
+    const placas = [...new Set(objetos.map(o => o.placa))].sort((a, b) => a - b).map(n => ({ n, nome: nomesPlaca[n] || '' }));
+    return { objetos, cores, avisos, config, origemConfig, placas };
+  }
+
+  // PrusaSlicer usa outros nomes: traduz o essencial para os nomes do Orca
+  function prusaParaOrca(ini) {
+    const c = {}, num = v => String(v).split(/[;,]/)[0];
+    const map = { layer_height: 'layer_height', first_layer_height: 'initial_layer_print_height', perimeters: 'wall_loops', top_solid_layers: 'top_shell_layers',
+      bottom_solid_layers: 'bottom_shell_layers', fill_density: 'sparse_infill_density', support_material_threshold: 'support_threshold_angle', brim_width: 'brim_width',
+      ironing_flowrate: 'ironing_flow', ironing_spacing: 'ironing_spacing', ironing_speed: 'ironing_speed', perimeter_speed: 'inner_wall_speed',
+      external_perimeter_speed: 'outer_wall_speed', infill_speed: 'sparse_infill_speed', solid_infill_speed: 'internal_solid_infill_speed', top_solid_infill_speed: 'top_surface_speed',
+      first_layer_speed: 'initial_layer_speed', travel_speed: 'travel_speed', support_material_speed: 'support_speed' };
+    for (const [a, b] of Object.entries(map)) if (ini[a] !== undefined) c[b] = num(ini[a]);
+    if (ini.temperature) c.nozzle_temperature = ini.temperature.split(/[;,]/);
+    if (ini.first_layer_temperature) c.nozzle_temperature_initial_layer = ini.first_layer_temperature.split(/[;,]/);
+    if (ini.bed_temperature) { c.textured_plate_temp = ini.bed_temperature.split(/[;,]/); c.curr_bed_type = 'Textured PEI Plate'; }
+    if (ini.filament_type) c.filament_type = ini.filament_type.split(/[;,]/);
+    if (ini.max_volumetric_speed || ini.filament_max_volumetric_speed) c.filament_max_volumetric_speed = (ini.filament_max_volumetric_speed || ini.max_volumetric_speed).split(/[;,]/);
+    c.enable_support = ini.support_material === '1' ? '1' : '0';
+    c.support_on_build_plate_only = ini.support_material_buildplate_only || '0';
+    c.ironing_type = ini.ironing === '1' ? ({ top: 'top', topmost: 'topmost', solid: 'solid' }[ini.ironing_type] || 'top') : 'no ironing';
+    c.brim_type = +(ini.brim_width || 0) > 0 ? 'outer_only' : 'no_brim';
+    return c;
   }
 
   // ------------------------------------------------------------ posicionar na mesa
-  function posicionar(modelo) {
+  function posicionar(lido, placa) {
     const M = F().MESA;
+    const modelo = Object.assign({}, lido, {
+      objetos: lido.objetos.filter(o => placa === undefined || o.placa === placa)
+        .map(o => Object.assign({}, o, { volumes: o.volumes.map(v => Object.assign({}, v, { tri: new Float32Array(v.tri) })) })),
+    });
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const o of modelo.objetos) {
       let zmin = Infinity;
